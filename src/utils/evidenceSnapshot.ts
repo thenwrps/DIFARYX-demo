@@ -37,6 +37,11 @@ import {
   type UploadedSignalRun,
 } from '../data/uploadedSignalRuns';
 import {
+  getTechniqueProcessingSupport,
+  getUploadedEvidenceValidationText,
+  type TechniqueProcessingSupportLevel,
+} from './techniqueProcessingSupport';
+import {
   createMockDriveEvidencePreview,
   type GoogleDriveImportPreview,
 } from '../runtime/googleDriveImport';
@@ -77,6 +82,8 @@ export interface ProjectEvidenceSnapshot {
   permissionMode?: PermissionMode;
   sourceLabel?: string;
   approvalStatus?: RuntimeApprovalStatus;
+  processingSupportLevel?: TechniqueProcessingSupportLevel;
+  processingSupportLabel?: string;
 }
 
 export interface ProjectEvidenceSnapshotOptions {
@@ -419,6 +426,8 @@ function buildUploadedSessionSnapshot(
     permissionMode: runtimeContext.permissionMode,
     sourceLabel: runtimeContext.sourceLabel,
     approvalStatus: runtimeContext.approvalStatus,
+    processingSupportLevel: getTechniqueProcessingSupport(technique).level,
+    processingSupportLabel: getTechniqueProcessingSupport(technique).label,
   };
 }
 
@@ -498,6 +507,8 @@ function buildUploadedRunSnapshot(
     permissionMode: runtimeContext.permissionMode,
     sourceLabel: runtimeContext.sourceLabel,
     approvalStatus: runtimeContext.approvalStatus,
+    processingSupportLevel: hasKnownTechnique ? getTechniqueProcessingSupport(technique).level : 'metadata_only',
+    processingSupportLabel: hasKnownTechnique ? getTechniqueProcessingSupport(technique).label : 'Metadata only',
   };
 }
 

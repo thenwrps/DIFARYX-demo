@@ -1350,22 +1350,24 @@ export default function AgentDemo() {
   const hasExplicitDemoProject = Boolean(searchParams.get('project'));
   const effectiveWorkspaceMode = routeContext.effectiveWorkspaceMode;
 
-  if (routeContext.isUploadedContext) {
-    return <UploadedAgentContext routeContext={routeContext} />;
-  }
-
-  if (effectiveWorkspaceMode === 'user' && !hasExplicitDemoProject) {
+  // Show empty state only if user mode with no uploaded evidence and no explicit demo project
+  if (effectiveWorkspaceMode === 'user' && !hasExplicitDemoProject && !routeContext.isUploadedContext) {
     return <AgentUserWorkspaceEmptyState email={user?.email} />;
   }
 
-  return <AgentDemoContent />;
+  // Pass routeContext to AgentDemoContent for uploaded evidence integration
+  return <AgentDemoContent routeContext={routeContext} />;
 }
 
-function AgentDemoContent() {
+function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const projectIdFromUrl = normalizeRegistryProjectId(searchParams.get('project')) || DEFAULT_PROJECT_ID;
+  // For uploaded evidence, derive context from routeContext instead of URL project param
+  const isUploadedContext = routeContext.isUploadedContext;
+  const projectIdFromUrl = isUploadedContext
+    ? 'uploaded-evidence-temp' // Temporary ID for uploaded evidence
+    : (normalizeRegistryProjectId(searchParams.get('project')) || DEFAULT_PROJECT_ID);
   const modeFromUrl = normalizeAgentMode(searchParams.get('mode'));
 
   const [missionText, setMissionText] = useState(DEFAULT_MISSION);
@@ -1418,18 +1420,46 @@ function AgentDemoContent() {
     );
   }
 
-  const registryProject = getRegistryProject(agentState.projectId);
-  const currentProject = registryProject._raw;
+  // For uploaded evidence, getProjectEvidenceSnapshot handles it directly
   const evidenceSnapshot = useMemo(
-    () => getProjectEvidenceSnapshot(agentState.projectId, {
+    () => getProjectEvidenceSnapshot(isUploadedContext ? null : agentState.projectId, {
       source: searchParams.get('source'),
       analysisSessionId: searchParams.get('sessionId') ?? searchParams.get('analysisId'),
       uploadedRunId: searchParams.get('upload') ?? searchParams.get('uploadedRunId'),
       driveFileId: searchParams.get('driveFileId') ?? searchParams.get('driveImportId'),
       runtimeMode,
     }),
-    [agentState.projectId, runtimeMode, searchParams],
+    [isUploadedContext, agentState.projectId, runtimeMode, searchParams],
   );
+
+  // For uploaded context, use a minimal project structure from evidenceSnapshot
+  const registryProject = isUploadedContext
+    ? {
+        id: 'uploaded-evidence-temp',
+        name: evidenceSnapshot.activeDataset?.fileName ?? 'Uploaded Evidence',
+        label: evidenceSnapshot.activeDataset?.fileName ?? 'Uploaded Evidence',
+        description: 'User-uploaded evidence session',
+        phase: 'Unknown',
+        techniques: evidenceSnapshot.availableTechniques as Technique[],
+        claimStatus: 'pending',
+        reportReadiness: 0,
+        validationGapCount: 1,
+        decisionPendingCount: 1,
+        jobType: 'research',
+        _raw: {
+          id: 'uploaded-evidence-temp',
+          name: evidenceSnapshot.activeDataset?.fileName ?? 'Uploaded Evidence',
+          phase: 'Unknown',
+          techniques: evidenceSnapshot.availableTechniques as Technique[],
+          evidence: [],
+          validationGaps: [{ description: 'Validation limited: user-uploaded evidence', severity: 'moderate' as const, urgency: 'medium' as const }],
+          nextDecisions: [{ label: 'Additional validation required', priority: 'medium' as const }],
+          evidenceSources: [],
+        },
+      } as ReturnType<typeof getRegistryProject>
+    : getRegistryProject(agentState.projectId);
+
+  const currentProject = registryProject._raw;
   const runtimeContext = runtimeMode === 'connected'
     ? getRuntimeContextForEvidenceSource('google_drive_connected', 'connected')
     : {
@@ -1443,8 +1473,13 @@ function AgentDemoContent() {
     ? getGoogleConnectedShellState()
     : getDefaultConnectedAccountState();
 
-  // Bundle gating: only create bundle when appropriate
+  // Bundle gating: only create bundle when appropriate (not for uploaded evidence)
   const evidenceBundle = useMemo(() => {
+    // Don't create bundle for uploaded evidence context
+    if (isUploadedContext) {
+      return null;
+    }
+
     const techniqueCount = evidenceSnapshot.availableTechniques.length;
     const context: import('../runtime/evidenceBundle').BundleCreationContext = {
       route: '/demo/agent',
@@ -1465,7 +1500,7 @@ function AgentDemoContent() {
       lifecycleState: 'created',
       creationReason: context.hasDemoPreloadedBundle ? 'demo_preloaded' : 'agent_requested_evidence_package',
     });
-  }, [evidenceSnapshot, searchParams, currentProject.id]);
+  }, [isUploadedContext, evidenceSnapshot, searchParams, currentProject.id]);
 
   const bundleTechniqueCoverage = useMemo(
     () => evidenceBundle ? getTechniqueCoverageFromBundle(evidenceBundle) : [],
@@ -2319,17 +2354,26 @@ function AgentDemoContent() {
             </div>
           )}
 
-          {/* Runtime Compact Chip */}
-          <div className={`h-7 px-2 flex items-center gap-1 border rounded text-[10px] font-semibold ${
-            runtimeMode === 'demo'
+          {/* Runtime Mode / Source Chip */}
+          <div className={`h-7 px-2 flex items-center rounded text-[10px] font-semibold border ${
+            isUploadedContext
+              ? 'bg-blue-50 border-blue-200 text-blue-700'
+              : runtimeMode === 'demo'
               ? 'bg-slate-50 border-slate-200 text-slate-700'
               : 'bg-amber-50 border-amber-200 text-amber-700'
           }`}>
-            <span>{runtimeMode === 'demo' ? 'Demo' : 'Connected'}</span>
+            <span>{isUploadedContext ? 'User evidence' : (runtimeMode === 'demo' ? 'Demo' : 'Connected')}</span>
           </div>
 
-          {/* Bundle Compact Chip - only show if bundle exists */}
-          {evidenceBundle && (
+          {/* Read-only chip for uploaded evidence */}
+          {isUploadedContext && (
+            <div className="h-7 px-2 flex items-center rounded text-[10px] font-semibold border bg-slate-50 border-slate-300 text-slate-700">
+              <span>Read-only</span>
+            </div>
+          )}
+
+          {/* Bundle Compact Chip - only show if bundle exists (not for uploaded) */}
+          {evidenceBundle && !isUploadedContext && (
             <div
               className="h-7 px-2 flex items-center gap-1 bg-cyan-50 border border-cyan-200 rounded text-[10px] font-semibold text-cyan-700"
               title={`${evidenceBundle.bundleId}: ${bundleTechniqueCoverage.map((item) => `${item.technique} ${item.status}`).join(', ')}`}
@@ -2338,10 +2382,11 @@ function AgentDemoContent() {
               <span>Bundle {evidenceBundle.evidenceCompletenessScore}%</span>
             </div>
           )}
+
           {/* Boundary Compact Chip */}
           <div className="h-7 px-2 flex items-center gap-1 bg-emerald-50 border border-emerald-200 rounded text-[10px] font-semibold text-emerald-700">
             <CheckCircle2 size={10} />
-            <span>{evidenceSnapshot.validationGaps.length > 0 ? 'Boundary gated' : 'Boundary ready'}</span>
+            <span>{isUploadedContext ? 'Validation limited' : (evidenceSnapshot.validationGaps.length > 0 ? 'Boundary gated' : 'Boundary ready')}</span>
           </div>
 
           <div className="flex-1" />

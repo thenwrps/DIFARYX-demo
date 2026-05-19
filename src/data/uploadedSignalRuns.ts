@@ -618,3 +618,58 @@ export function saveUploadedSignalRun(run: UploadedSignalRun): boolean {
     return false;
   }
 }
+
+/**
+ * Update uploaded run with new processing results
+ */
+export function updateUploadedRunProcessingResults(
+  runId: string,
+  updates: {
+    extractedFeatures?: TechniqueFeature[];
+    evidenceQuality?: EvidenceQuality;
+    processingLog?: string[];
+    parameterSnapshot?: Record<string, unknown>;
+  },
+): boolean {
+  if (typeof window === 'undefined' || !window.localStorage) return false;
+
+  try {
+    const existing = readUploadedSignalRuns();
+    const runIndex = existing.findIndex((r) => r.id === runId);
+
+    if (runIndex === -1) {
+      console.warn(`Uploaded run ${runId} not found for update`);
+      return false;
+    }
+
+    const updatedRun: UploadedSignalRun = {
+      ...existing[runIndex],
+      ...(updates.extractedFeatures && { extractedFeatures: updates.extractedFeatures }),
+      ...(updates.evidenceQuality && { evidenceQuality: updates.evidenceQuality }),
+      // Store processing metadata in run (extend interface if needed)
+      ...(updates.processingLog && { processingLog: updates.processingLog } as any),
+      ...(updates.parameterSnapshot && { parameterSnapshot: updates.parameterSnapshot } as any),
+      updatedAt: new Date().toISOString(),
+    } as any;
+
+    const storedRun = compactUploadedSignalRunForStorage(updatedRun);
+    const next = [
+      storedRun,
+      ...existing.filter((item, idx) => idx !== runIndex),
+    ].slice(0, MAX_PERSISTED_RUNS);
+
+    window.localStorage.setItem(UPLOADED_SIGNAL_RUNS_KEY, JSON.stringify(next));
+    return true;
+  } catch (error) {
+    console.error('Failed to update uploaded run:', error);
+    return false;
+  }
+}
+
+/**
+ * Get uploaded run by ID
+ */
+export function getUploadedRunById(runId: string): UploadedSignalRun | null {
+  const runs = readUploadedSignalRuns();
+  return runs.find((r) => r.id === runId) || null;
+}

@@ -70,7 +70,21 @@ import {
   getRuntimeBadgeLabel,
   getRuntimeContextForEvidenceSource,
 } from '../../runtime/difaryxRuntimeMode';
-import { readUploadedSignalRuns } from '../../data/uploadedSignalRuns';
+import {
+  readUploadedSignalRuns,
+  updateUploadedRunProcessingResults,
+  getUploadedRunById,
+  type TechniqueFeature,
+} from '../../data/uploadedSignalRuns';
+import { runXrdPhaseIdentificationAgent } from '../../agents/xrdAgent/runner';
+import { getXrdProcessingParams, getXrdParameterSnapshot } from '../../utils/xrdParameterAdapter';
+import { runRamanProcessing } from '../../agents/ramanAgent/runner';
+import { getRamanProcessingParams, getRamanParameterSnapshot } from '../../utils/ramanParameterAdapter';
+import { runXpsProcessing } from '../../agents/xpsAgent/runner';
+import { getXpsProcessingParams, getXpsParameterSnapshot } from '../../utils/xpsParameterAdapter';
+import { runFtirProcessing } from '../../agents/ftirAgent/runner';
+import { getFtirProcessingParams, getFtirParameterSnapshot } from '../../utils/ftirParameterAdapter';
+import { getTechniqueProcessingSupport } from '../../utils/techniqueProcessingSupport';
 
 const RIGHT_TABS = ['Evidence', 'Parameters', 'Graph', 'Boundary', 'Trace'] as const;
 type RightTab = (typeof RIGHT_TABS)[number];
@@ -873,6 +887,359 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
   };
 
   const reprocess = () => {
+    // For uploaded XRD context, run actual processing
+    if (isUploadedContext && technique === 'xrd' && routeContext.uploadedRunId) {
+      const uploadedRun = getUploadedRunById(routeContext.uploadedRunId);
+
+      if (!uploadedRun) {
+        setSessionState((prev) =>
+          addLog(prev, `[error] Uploaded run ${routeContext.uploadedRunId} not found.`),
+        );
+        return;
+      }
+
+      try {
+        // Read effective parameters from parameter state manager
+        const processingParams = projectId
+          ? getXrdProcessingParams(projectId)
+          : undefined;
+        const paramSnapshot = projectId
+          ? getXrdParameterSnapshot(projectId)
+          : { hasOverrides: false, overrideCount: 0, lastUpdatedBy: 'default', updatedAt: null };
+
+        // Run XRD processing with uploaded data
+        const result = runXrdPhaseIdentificationAgent({
+          datasetId: uploadedRun.id,
+          sampleName: uploadedRun.sampleIdentity,
+          sourceLabel: uploadedRun.fileName,
+          dataPoints: uploadedRun.points.map(p => ({ twoTheta: p.x, intensity: p.y })),
+        }, processingParams);
+
+        // Convert detected peaks to TechniqueFeature format
+        const extractedFeatures: TechniqueFeature[] = result.detectedPeaks.map((peak, index) => ({
+          id: `xrd-peak-${index}`,
+          technique: 'XRD' as const,
+          label: `Peak at ${peak.position.toFixed(2)}°`,
+          position: peak.position,
+          intensity: peak.relativeIntensity,
+          relativeIntensity: peak.relativeIntensity,
+          prominence: peak.relativeIntensity,
+          context: peak.possiblePhases.join(', ') || 'Unknown phase',
+        }));
+
+        // Update uploaded run with processing results
+        const updateSuccess = updateUploadedRunProcessingResults(routeContext.uploadedRunId, {
+          extractedFeatures,
+          evidenceQuality: {
+            state: 'ready',
+            label: 'Ready for analysis',
+            canInterpret: true,
+            messages: [],
+          },
+          processingLog: [
+            `Reprocessed at ${new Date().toISOString()}`,
+            `Detected ${result.detectedPeaks.length} peaks`,
+            paramSnapshot.hasOverrides
+              ? `Applied ${paramSnapshot.overrideCount} custom parameter(s) (last updated by ${paramSnapshot.lastUpdatedBy})`
+              : 'Used default parameters',
+          ],
+          parameterSnapshot: paramSnapshot.hasOverrides
+            ? { ...processingParams, provenance: paramSnapshot }
+            : undefined,
+        });
+
+        if (updateSuccess) {
+          setSessionState((prev) =>
+            addLog(
+              {
+                ...prev,
+                dirty: false,
+                pendingRecalculation: false,
+                pipelineStates: markStepsDone(prev.pipelineStates, previewAffectedSteps),
+                lastProcessedLabel: makeTimeLabel(),
+              },
+              [
+                `[processing] Reprocessed uploaded XRD evidence: ${uploadedRun.fileName}`,
+                `[features] Detected ${extractedFeatures.length} peaks`,
+                paramSnapshot.hasOverrides
+                  ? `[params] Applied ${paramSnapshot.overrideCount} custom XRD parameter(s) (last updated by ${paramSnapshot.lastUpdatedBy})`
+                  : '[params] Used default XRD parameters',
+              ].join('\n'),
+            ),
+          );
+        } else {
+          setSessionState((prev) =>
+            addLog(prev, `[error] Failed to update uploaded run ${routeContext.uploadedRunId}.`),
+          );
+        }
+      } catch (error) {
+        console.error('XRD reprocessing error:', error);
+        setSessionState((prev) =>
+          addLog(prev, `[error] XRD reprocessing failed: ${error instanceof Error ? error.message : 'Unknown error'}`),
+        );
+      }
+      return;
+    }
+
+    // For uploaded Raman context, run actual processing
+    if (isUploadedContext && technique === 'raman' && routeContext.uploadedRunId) {
+      const uploadedRun = getUploadedRunById(routeContext.uploadedRunId);
+
+      if (!uploadedRun) {
+        setSessionState((prev) =>
+          addLog(prev, `[error] Uploaded run ${routeContext.uploadedRunId} not found.`),
+        );
+        return;
+      }
+
+      try {
+        const processingParams = projectId ? getRamanProcessingParams(projectId) : undefined;
+        const paramSnapshot = projectId
+          ? getRamanParameterSnapshot(projectId)
+          : { hasOverrides: false, overrideCount: 0, lastUpdatedBy: 'default', updatedAt: null };
+
+        const result = runRamanProcessing({
+          ramanShift: uploadedRun.points.map(p => p.x),
+          intensity: uploadedRun.points.map(p => p.y),
+        }, processingParams);
+
+        const extractedFeatures: TechniqueFeature[] = result.peaks.map((peak, index) => ({
+          id: `raman-peak-${index}`,
+          technique: 'Raman' as const,
+          label: `Peak at ${peak.position.toFixed(1)} cm⁻¹`,
+          position: peak.position,
+          intensity: peak.intensity,
+          relativeIntensity: peak.relativeIntensity,
+          prominence: peak.relativeIntensity,
+          context: peak.assignedMode?.mode || 'Unassigned',
+        }));
+
+        const updateSuccess = updateUploadedRunProcessingResults(routeContext.uploadedRunId, {
+          extractedFeatures,
+          evidenceQuality: {
+            state: 'ready',
+            label: 'Ready for analysis',
+            canInterpret: true,
+            messages: [],
+          },
+          processingLog: [
+            `Reprocessed at ${new Date().toISOString()}`,
+            `Detected ${result.peaks.length} peaks`,
+            paramSnapshot.hasOverrides
+              ? `Applied ${paramSnapshot.overrideCount} custom parameter(s) (last updated by ${paramSnapshot.lastUpdatedBy})`
+              : 'Used default parameters',
+          ],
+          parameterSnapshot: paramSnapshot.hasOverrides
+            ? { ...processingParams, provenance: paramSnapshot }
+            : undefined,
+        });
+
+        if (updateSuccess) {
+          setSessionState((prev) =>
+            addLog(
+              {
+                ...prev,
+                dirty: false,
+                pendingRecalculation: false,
+                pipelineStates: markStepsDone(prev.pipelineStates, previewAffectedSteps),
+                lastProcessedLabel: makeTimeLabel(),
+              },
+              [
+                `[processing] Reprocessed uploaded Raman evidence: ${uploadedRun.fileName}`,
+                `[features] Detected ${extractedFeatures.length} peaks`,
+                paramSnapshot.hasOverrides
+                  ? `[params] Applied ${paramSnapshot.overrideCount} custom Raman parameter(s) (last updated by ${paramSnapshot.lastUpdatedBy})`
+                  : '[params] Used default Raman parameters',
+              ].join('\n'),
+            ),
+          );
+        } else {
+          setSessionState((prev) =>
+            addLog(prev, `[error] Failed to update uploaded run ${routeContext.uploadedRunId}.`),
+          );
+        }
+      } catch (error) {
+        console.error('Raman reprocessing error:', error);
+        setSessionState((prev) =>
+          addLog(prev, `[error] Raman reprocessing failed: ${error instanceof Error ? error.message : 'Unknown error'}`),
+        );
+      }
+      return;
+    }
+
+    // For uploaded XPS context, run actual processing
+    if (isUploadedContext && technique === 'xps' && routeContext.uploadedRunId) {
+      const uploadedRun = getUploadedRunById(routeContext.uploadedRunId);
+
+      if (!uploadedRun) {
+        setSessionState((prev) =>
+          addLog(prev, `[error] Uploaded run ${routeContext.uploadedRunId} not found.`),
+        );
+        return;
+      }
+
+      try {
+        const processingParams = projectId ? getXpsProcessingParams(projectId) : undefined;
+        const paramSnapshot = projectId
+          ? getXpsParameterSnapshot(projectId)
+          : { hasOverrides: false, overrideCount: 0, lastUpdatedBy: 'default', updatedAt: null };
+
+        const result = runXpsProcessing({
+          bindingEnergy: uploadedRun.points.map(p => p.x),
+          intensity: uploadedRun.points.map(p => p.y),
+        }, processingParams);
+
+        const extractedFeatures: TechniqueFeature[] = result.peaks.map((peak, index) => ({
+          id: `xps-peak-${index}`,
+          technique: 'XPS' as const,
+          label: `Peak at ${peak.position.toFixed(1)} eV`,
+          position: peak.position,
+          intensity: peak.intensity,
+          relativeIntensity: (peak.intensity / Math.max(...result.peaks.map(p => p.intensity))) * 100,
+          prominence: peak.intensity,
+          context: peak.assignment?.element || 'Unassigned',
+        }));
+
+        const updateSuccess = updateUploadedRunProcessingResults(routeContext.uploadedRunId, {
+          extractedFeatures,
+          evidenceQuality: {
+            state: 'ready',
+            label: 'Ready for analysis',
+            canInterpret: true,
+            messages: [],
+          },
+          processingLog: [
+            `Reprocessed at ${new Date().toISOString()}`,
+            `Detected ${result.peaks.length} peaks`,
+            paramSnapshot.hasOverrides
+              ? `Applied ${paramSnapshot.overrideCount} custom parameter(s) (last updated by ${paramSnapshot.lastUpdatedBy})`
+              : 'Used default parameters',
+          ],
+          parameterSnapshot: paramSnapshot.hasOverrides
+            ? { ...processingParams, provenance: paramSnapshot }
+            : undefined,
+        });
+
+        if (updateSuccess) {
+          setSessionState((prev) =>
+            addLog(
+              {
+                ...prev,
+                dirty: false,
+                pendingRecalculation: false,
+                pipelineStates: markStepsDone(prev.pipelineStates, previewAffectedSteps),
+                lastProcessedLabel: makeTimeLabel(),
+              },
+              [
+                `[processing] Reprocessed uploaded XPS evidence: ${uploadedRun.fileName}`,
+                `[features] Detected ${extractedFeatures.length} peaks`,
+                paramSnapshot.hasOverrides
+                  ? `[params] Applied ${paramSnapshot.overrideCount} custom XPS parameter(s) (last updated by ${paramSnapshot.lastUpdatedBy})`
+                  : '[params] Used default XPS parameters',
+              ].join('\n'),
+            ),
+          );
+        } else {
+          setSessionState((prev) =>
+            addLog(prev, `[error] Failed to update uploaded run ${routeContext.uploadedRunId}.`),
+          );
+        }
+      } catch (error) {
+        console.error('XPS reprocessing error:', error);
+        setSessionState((prev) =>
+          addLog(prev, `[error] XPS reprocessing failed: ${error instanceof Error ? error.message : 'Unknown error'}`),
+        );
+      }
+      return;
+    }
+
+    // For uploaded FTIR context, run actual processing
+    if (isUploadedContext && technique === 'ftir' && routeContext.uploadedRunId) {
+      const uploadedRun = getUploadedRunById(routeContext.uploadedRunId);
+
+      if (!uploadedRun) {
+        setSessionState((prev) =>
+          addLog(prev, `[error] Uploaded run ${routeContext.uploadedRunId} not found.`),
+        );
+        return;
+      }
+
+      try {
+        const processingParams = projectId ? getFtirProcessingParams(projectId) : undefined;
+        const paramSnapshot = projectId
+          ? getFtirParameterSnapshot(projectId)
+          : { hasOverrides: false, overrideCount: 0, lastUpdatedBy: 'default', updatedAt: null };
+
+        const result = runFtirProcessing({
+          wavenumber: uploadedRun.points.map(p => p.x),
+          absorbance: uploadedRun.points.map(p => p.y),
+        }, processingParams);
+
+        const extractedFeatures: TechniqueFeature[] = result.bands.map((band, index) => ({
+          id: `ftir-band-${index}`,
+          technique: 'FTIR' as const,
+          label: `Band at ${band.position.toFixed(0)} cm⁻¹`,
+          position: band.position,
+          intensity: band.intensity,
+          relativeIntensity: (band.intensity / Math.max(...result.bands.map(b => b.intensity))) * 100,
+          prominence: band.intensity,
+          context: band.assignment?.functionalGroup || 'Unassigned',
+        }));
+
+        const updateSuccess = updateUploadedRunProcessingResults(routeContext.uploadedRunId, {
+          extractedFeatures,
+          evidenceQuality: {
+            state: 'ready',
+            label: 'Ready for analysis',
+            canInterpret: true,
+            messages: [],
+          },
+          processingLog: [
+            `Reprocessed at ${new Date().toISOString()}`,
+            `Detected ${result.bands.length} bands`,
+            paramSnapshot.hasOverrides
+              ? `Applied ${paramSnapshot.overrideCount} custom parameter(s) (last updated by ${paramSnapshot.lastUpdatedBy})`
+              : 'Used default parameters',
+          ],
+          parameterSnapshot: paramSnapshot.hasOverrides
+            ? { ...processingParams, provenance: paramSnapshot }
+            : undefined,
+        });
+
+        if (updateSuccess) {
+          setSessionState((prev) =>
+            addLog(
+              {
+                ...prev,
+                dirty: false,
+                pendingRecalculation: false,
+                pipelineStates: markStepsDone(prev.pipelineStates, previewAffectedSteps),
+                lastProcessedLabel: makeTimeLabel(),
+              },
+              [
+                `[processing] Reprocessed uploaded FTIR evidence: ${uploadedRun.fileName}`,
+                `[features] Detected ${extractedFeatures.length} bands`,
+                paramSnapshot.hasOverrides
+                  ? `[params] Applied ${paramSnapshot.overrideCount} custom FTIR parameter(s) (last updated by ${paramSnapshot.lastUpdatedBy})`
+                  : '[params] Used default FTIR parameters',
+              ].join('\n'),
+            ),
+          );
+        } else {
+          setSessionState((prev) =>
+            addLog(prev, `[error] Failed to update uploaded run ${routeContext.uploadedRunId}.`),
+          );
+        }
+      } catch (error) {
+        console.error('FTIR reprocessing error:', error);
+        setSessionState((prev) =>
+          addLog(prev, `[error] FTIR reprocessing failed: ${error instanceof Error ? error.message : 'Unknown error'}`),
+        );
+      }
+      return;
+    }
+
+    // Default behavior for demo/project mode
     setSessionState((prev) =>
       addLog(
         {
