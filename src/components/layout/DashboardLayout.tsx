@@ -24,6 +24,10 @@ import {
   getStoredWorkspaceMode,
   type WorkspaceMode,
 } from '../../utils/workspaceMode';
+import {
+  buildEvidenceRouteSearch,
+  getEvidenceRouteContext,
+} from '../../utils/evidenceRouteContext';
 
 interface NavItem {
   label: string;
@@ -83,12 +87,32 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     searchParams: new URLSearchParams(location.search),
     storedMode,
   });
+  const routeContext = getEvidenceRouteContext({
+    authUser: user,
+    searchParams: new URLSearchParams(location.search),
+    storedMode,
+  });
+  const uploadedEvidenceSearch = routeContext.isUploadedContext ? buildEvidenceRouteSearch(routeContext) : '';
+  const uploadedTechnique = routeContext.technique ?? 'xrd';
   const useUserWorkspaceNav = effectiveWorkspaceMode === 'user';
   const demoModeSuffix = effectiveWorkspaceMode === 'demo_explicit' ? '&mode=demo' : '';
   const demoModeOnlySuffix = effectiveWorkspaceMode === 'demo_explicit' ? '?mode=demo' : '';
   const demoProjectQuery = `?project=${DEFAULT_PROJECT_ID}${demoModeSuffix}`;
 
-  const mainNavItems: NavItem[] = [
+  const mainNavItems: NavItem[] = uploadedEvidenceSearch ? [
+    { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', match: ['/', '/dashboard'] },
+    {
+      label: 'Workspace',
+      icon: FlaskConical,
+      path: `/workspace/${uploadedTechnique}?mode=quick&${uploadedEvidenceSearch}`,
+      match: ['/workspace', '/analysis'],
+    },
+    { label: 'Agent Workspace', icon: Bot, path: `/demo/agent?${uploadedEvidenceSearch}`, match: ['/demo/agent'] },
+    { label: 'Notebook Lab', icon: BookOpen, path: `/notebook?${uploadedEvidenceSearch}&template=research`, match: ['/notebook'] },
+    { label: 'Reports', icon: FileText, path: `/report?${uploadedEvidenceSearch}&template=xrd-summary`, match: ['/reports', '/report'] },
+    { label: 'History', icon: History, path: `/history?${uploadedEvidenceSearch}`, match: ['/history'] },
+    { label: 'Settings', icon: Settings, path: '/settings', match: ['/settings'] },
+  ] : [
     { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', match: ['/', '/dashboard'] },
     {
       label: 'Workspace',

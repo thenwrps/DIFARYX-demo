@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import {
   Activity,
+  BookOpen,
   Database,
   FileText,
   History,
@@ -15,11 +16,15 @@ interface LeftSidebarProps {
   currentDataset: DemoDataset;
   currentProject: DemoProject;
   onNavigate?: (route: string) => void;
+  uploadedEvidenceSearch?: string;
+  uploadedTechnique?: string;
 }
 
 export function LeftSidebar({
   currentDataset,
   currentProject,
+  uploadedEvidenceSearch,
+  uploadedTechnique,
 }: LeftSidebarProps) {
   const workspaceRoute = getWorkspaceRoute(
     currentProject,
@@ -31,7 +36,21 @@ export function LeftSidebar({
     : `${workspaceRoute}?mode=demo`;
 
   const multiTechRoute = `/workspace/multi?project=${currentProject.id}&mode=demo`;
-  const notebookRoute = `/notebook?project=${currentProject.id}&mode=demo`;
+  const notebookRoute = uploadedEvidenceSearch
+    ? `/notebook?${uploadedEvidenceSearch}&template=research`
+    : `/notebook?project=${currentProject.id}&mode=demo`;
+  const reportRoute = uploadedEvidenceSearch
+    ? `/report?${uploadedEvidenceSearch}&template=xrd-summary`
+    : `/reports?project=${currentProject.id}&mode=demo`;
+  const agentRoute = uploadedEvidenceSearch
+    ? `/demo/agent?${uploadedEvidenceSearch}`
+    : `/demo/agent?project=${currentProject.id}&mode=demo`;
+  const dataRoute = uploadedEvidenceSearch
+    ? `/workspace/${uploadedTechnique ?? currentDataset.technique.toLowerCase()}?mode=quick&${uploadedEvidenceSearch}`
+    : workspaceDemoRoute;
+  const workflowRoute = uploadedEvidenceSearch
+    ? `/workspace/${uploadedTechnique ?? currentDataset.technique.toLowerCase()}?mode=quick&${uploadedEvidenceSearch}`
+    : multiTechRoute;
 
   return (
     <aside className="flex w-[72px] shrink-0 flex-col border-r border-slate-200 bg-white">
@@ -39,23 +58,28 @@ export function LeftSidebar({
         <NavItem
           icon={Activity}
           label="Agent Workspace"
-          to={`/demo/agent?project=${currentProject.id}&mode=demo`}
+          to={agentRoute}
           active
         />
         <NavItem
           icon={Layers}
           label="Workflows"
-          to={multiTechRoute}
+          to={workflowRoute}
         />
         <NavItem
           icon={Database}
           label="Data"
-          to={workspaceDemoRoute}
+          to={dataRoute}
+        />
+        <NavItem
+          icon={BookOpen}
+          label="Notebook"
+          to={notebookRoute}
         />
         <NavItem
           icon={FileText}
-          label="Results"
-          to={notebookRoute}
+          label="Report"
+          to={reportRoute}
         />
         <NavItem
           icon={History}

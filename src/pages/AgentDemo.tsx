@@ -40,6 +40,8 @@ import type {
   DemoPeak,
   DemoProject,
   Technique,
+  ClaimStatus,
+  ValidationState,
 } from '../data/demoProjects';
 import { generateRunId, saveRun, type AgentRun } from '../data/runModel';
 import { buildEvidencePacket } from '../agent/mcp/evidencePacket';
@@ -74,6 +76,7 @@ import {
   type TechniqueId,
   type SelectedTechniqueState,
   type EvidenceReference,
+  type TraceEventType,
   applyParameterChange,
   toggleTechnique,
   changeFocusedTechnique,
@@ -94,6 +97,8 @@ import {
   requiresApproval,
   type RuntimeMode,
 } from '../runtime/difaryxRuntimeMode';
+import { getProjectEvidenceSnapshot, type ProjectEvidenceSnapshot } from '../utils/evidenceSnapshot';
+import { createUploadedEvidenceRegistryProject } from '../utils/uploadedEvidenceProjectContext';
 import {
   getStoredWorkspaceMode,
   setWorkspaceMode,
@@ -628,7 +633,6 @@ function convertXrdPeaksToPeakInput(
     position: peak.position,
     intensity: peak.intensity,
     label: peak.label,
-    hkl: peak.hkl,
   }));
 }
 
@@ -716,7 +720,7 @@ function makePendingDatasetOption(project: DemoProject, context: TechniqueContex
       technique: context,
       fileName: `${project.name} ${context} evidence pending`,
       sampleName: project.name,
-      xLabel: CONTEXT_CONFIG[context].graphLabel,
+      xLabel: context === 'XRD' ? '2θ (°)' : context === 'XPS' ? 'Binding Energy (eV)' : context === 'FTIR' ? 'Wavenumber (cm⁻¹)' : 'Raman Shift (cm⁻¹)',
       yLabel: 'Signal',
       dataPoints: [],
       metadata: {
@@ -925,13 +929,12 @@ function formatReviewStatus(status: string) {
 }
 
 import { formatChemicalFormula } from '../utils';
-import { buildAgentContext, type WorkspaceParameters } from '../utils/agentContext';
+import { buildAgentContext, type AgentContext, type WorkspaceParameters } from '../utils/agentContext';
 import {
   getProjectTechniques,
   getProjectParameterGroups,
   type ParameterGroupId,
 } from '../utils/projectEvidence';
-import { getProjectEvidenceSnapshot } from '../utils/evidenceSnapshot';
 import { ApprovalActionDialog } from '../components/runtime/ApprovalActionDialog';
 import { ConnectedAccountStatus } from '../components/runtime/ConnectedAccountStatus';
 import {
@@ -1075,7 +1078,7 @@ function buildEvidenceWorkspaceFromRegistry(project: RegistryProject): AgentEvid
     trace: project.agentWorkflow.trace.map((event) => ({
       stepNumber: event.stepNumber,
       timestamp: `step-${event.stepNumber}`,
-      eventType: event.eventType === 'project_loaded' ? 'evidence_selected' : event.eventType,
+      eventType: event.eventType === 'project_loaded' ? 'evidence_selected' : event.eventType === 'parameter_checked' ? 'parameter_changed' : event.eventType as TraceEventType,
       eventLabel: event.label,
       input: event.input,
       reasoning: event.reasoning,
@@ -1195,8 +1198,8 @@ function toAgentRunResult(
     material: option.project.material,
     selectedDatasets: [context],
     decision: result.primaryResult,
-    confidence: 85, // Placeholder - fusionEngine doesn't use numeric confidence
-    confidenceLabel: 'Status',
+    claimStatus: 'partial' as ClaimStatus,
+    validationState: 'limited' as ValidationState,
     evidence: result.basis,
     warnings: result.limitations,
     recommendations: [result.decision],
@@ -1324,10 +1327,10 @@ function UploadedAgentContext({ routeContext }: { routeContext: EvidenceRouteCon
                 <Link to={workspacePath} className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-xs font-bold text-white hover:bg-primary/90">
                   Open Workspace
                 </Link>
-                <Link to={`/notebook${suffix}`} className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-white px-3 text-xs font-bold text-text-main hover:bg-slate-50">
+                <Link to={`/notebook${suffix}${suffix ? '&' : '?'}template=research`} className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-white px-3 text-xs font-bold text-text-main hover:bg-slate-50">
                   Send to Notebook
                 </Link>
-                <Link to={`/reports${suffix}`} className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-white px-3 text-xs font-bold text-text-main hover:bg-slate-50">
+                <Link to={`/report${suffix}${suffix ? '&' : '?'}template=xrd-summary`} className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-white px-3 text-xs font-bold text-text-main hover:bg-slate-50">
                   Create Report
                 </Link>
               </div>
@@ -1337,6 +1340,76 @@ function UploadedAgentContext({ routeContext }: { routeContext: EvidenceRouteCon
       </div>
     </DashboardLayout>
   );
+}
+
+function withUploadedEvidenceContext(
+  context: AgentContext,
+  snapshot: ProjectEvidenceSnapshot,
+): AgentContext {
+  if (snapshot.sourceMode !== 'user_uploaded' || !snapshot.activeDataset) return context;
+
+  const dataset = snapshot.activeDataset;
+  const technique = dataset.technique;
+  const graphType = technique.toLowerCase() as GraphType;
+  const graphData = dataset.dataPoints ?? [];
+  const peakMarkers = (dataset.detectedFeatures ?? []).map((feature) => ({
+    position: feature.position,
+    intensity: feature.intensity,
+    label: feature.label,
+  }));
+  const uploadedLayer = {
+    technique,
+    role: 'User-uploaded evidence',
+    status: graphData.length > 0 ? 'available' as const : 'pending' as const,
+    summary: snapshot.evidenceEntries[0]?.support ?? `Uploaded ${technique} evidence loaded from ${dataset.fileName}.`,
+    limitation: snapshot.validationGaps[0]?.description ?? 'Validation limited until attached to a project.',
+    claimContribution: 'Provides uploaded signal evidence for bounded review.',
+    parameters: {},
+    hasGraphData: graphData.length > 0,
+    graphData,
+    graphType,
+    baselineData: undefined,
+    peakMarkers,
+  };
+  const evidenceLayers = [
+    uploadedLayer,
+    ...context.evidenceLayers.filter((layer) => layer.technique !== technique),
+  ];
+  const metricCards = [
+    { label: 'Uploaded file', value: dataset.fileName, sublabel: snapshot.sampleIdentity },
+    { label: 'Graph points', value: String(graphData.length), sublabel: graphData.length > 0 ? 'present' : 'unavailable' },
+    { label: 'Detected peaks', value: String(peakMarkers.length), sublabel: technique },
+    { label: 'Signal quality', value: snapshot.processingSupportLabel ?? 'Validation limited' },
+  ];
+
+  return {
+    ...context,
+    selectedTechnique: technique,
+    primaryTechnique: technique,
+    activeTechniques: snapshot.availableTechniques.length ? snapshot.availableTechniques : [technique],
+    includedTechniques: snapshot.availableTechniques.length ? snapshot.availableTechniques : [technique],
+    evidenceLayers,
+    workspaceTitle: `${technique} Uploaded Evidence Review`,
+    workspaceDescription: `${dataset.fileName} / session-scoped user_uploaded evidence.`,
+    metricCards,
+    evidenceSummary: uploadedLayer.summary,
+    claimBoundary: snapshot.claimBoundary.requiresValidation[0] ?? uploadedLayer.limitation,
+    validationGaps: snapshot.validationGaps ?? [],
+    hasGraphData: graphData.length > 0,
+    graphType,
+    graphData,
+    peakMarkers,
+    notebookPayload: {
+      ...context.notebookPayload,
+      projectId: snapshot.projectId,
+      projectTitle: snapshot.projectName,
+      activeTechniques: snapshot.availableTechniques.length ? snapshot.availableTechniques : [technique],
+      includedTechniques: snapshot.availableTechniques.length ? snapshot.availableTechniques : [technique],
+      selectedTechnique: technique,
+      evidenceLayers,
+      validationGaps: snapshot.validationGaps ?? [],
+    },
+  };
 }
 
 export default function AgentDemo() {
@@ -1423,6 +1496,7 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
   // For uploaded evidence, getProjectEvidenceSnapshot handles it directly
   const evidenceSnapshot = useMemo(
     () => getProjectEvidenceSnapshot(isUploadedContext ? null : agentState.projectId, {
+<<<<<<< Updated upstream
       source: searchParams.get('source'),
       analysisSessionId: searchParams.get('sessionId') ?? searchParams.get('analysisId'),
       uploadedRunId: searchParams.get('upload') ?? searchParams.get('uploadedRunId'),
@@ -1457,6 +1531,20 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
           evidenceSources: [],
         },
       } as ReturnType<typeof getRegistryProject>
+=======
+      source: routeContext.source,
+      analysisSessionId: routeContext.sessionId,
+      uploadedRunId: routeContext.uploadedRunId,
+      driveFileId: routeContext.driveFileId,
+      runtimeMode,
+    }),
+    [isUploadedContext, agentState.projectId, runtimeMode, routeContext],
+  );
+
+  // For uploaded context, create safe registry project from evidence snapshot
+  const registryProject = isUploadedContext
+    ? createUploadedEvidenceRegistryProject(evidenceSnapshot)
+>>>>>>> Stashed changes
     : getRegistryProject(agentState.projectId);
 
   const currentProject = registryProject._raw;
@@ -1480,7 +1568,12 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
       return null;
     }
 
+<<<<<<< Updated upstream
     const techniqueCount = evidenceSnapshot.availableTechniques.length;
+=======
+    const availableTechniques = evidenceSnapshot.availableTechniques ?? [];
+    const techniqueCount = availableTechniques.length;
+>>>>>>> Stashed changes
     const context: import('../runtime/evidenceBundle').BundleCreationContext = {
       route: '/demo/agent',
       techniqueCount,
@@ -1511,8 +1604,10 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
     [agentState.context, agentState.projectId],
   );
   const selectedOption = useMemo(
-    () => getDatasetOption(agentState.context, agentState.datasetId, agentState.projectId),
-    [agentState.context, agentState.datasetId, agentState.projectId],
+    () => isUploadedContext && evidenceSnapshot.activeDataset
+      ? { project: currentProject, dataset: evidenceSnapshot.activeDataset }
+      : getDatasetOption(agentState.context, agentState.datasetId, agentState.projectId),
+    [isUploadedContext, evidenceSnapshot.activeDataset, currentProject, agentState.context, agentState.datasetId, agentState.projectId],
   );
   const selectedDataset = selectedOption.dataset;
   const selectedProject = currentProject;
@@ -1570,12 +1665,8 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
       ? 0
       : Math.min(100, ((agentState.reasoningState.currentStepIndex + 1) / stages.length) * 100);
   const templateMode = normalizeNotebookTemplateMode(searchParams.get('template'));
-  const evidenceRouteParams = new URLSearchParams();
-  ['source', 'bundle', 'sessionId', 'analysisId', 'upload', 'uploadedRunId', 'driveFileId', 'driveImportId'].forEach((key) => {
-    const value = searchParams.get(key);
-    if (value) evidenceRouteParams.set(key, value);
-  });
-  const evidenceRouteSuffix = evidenceRouteParams.toString() ? `&${evidenceRouteParams.toString()}` : '';
+  const evidenceRouteSearch = isUploadedContext ? buildEvidenceRouteSearch(routeContext) : '';
+  const evidenceRouteSuffix = evidenceRouteSearch ? `&${evidenceRouteSearch}` : '';
   const workflowProcessingResult = useMemo(
     () => {
       const requestedProcessingResult = getProcessingResult(searchParams.get('processing'));
@@ -1626,7 +1717,7 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
       destinationLabel,
       evidenceSnapshot,
       runtimeContext,
-      evidenceBundle,
+      evidenceBundle: evidenceBundle ?? undefined,
       riskLevel,
     });
     appendApprovalLedgerEntry(createApprovalLedgerEntry(action, 'preview_opened'));
@@ -1661,7 +1752,7 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
       destinationLabel,
       evidenceSnapshot,
       runtimeContext,
-      evidenceBundle,
+      evidenceBundle: evidenceBundle ?? undefined,
       riskLevel,
     });
     appendApprovalLedgerEntry(createApprovalLedgerEntry(action, 'local_preview_continued', {
@@ -1733,13 +1824,15 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
     runningGuardRef.current = true;
     const token = runTokenRef.current + 1;
     runTokenRef.current = token;
-    const option = getDatasetOption(context, datasetId, agentState.projectId);
+    const option = isUploadedContext && evidenceSnapshot.activeDataset
+      ? { project: currentProject, dataset: evidenceSnapshot.activeDataset }
+      : getDatasetOption(context, datasetId, agentState.projectId);
     const config = CONTEXT_CONFIG[context];
     const xrdResult =
       context === 'XRD'
         ? (() => {
-            const processingParams = getXrdProcessingParams(agentState.projectId);
-            const paramSnapshot = getXrdParameterSnapshot(agentState.projectId);
+            const processingParams = getXrdProcessingParams(currentProject.id);
+            const paramSnapshot = getXrdParameterSnapshot(currentProject.id);
             const result = runXrdPhaseIdentificationAgent({
               datasetId: option.dataset.id,
               sampleName: option.dataset.sampleName,
@@ -2153,13 +2246,15 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
 
   // Build agent context from current project, mode, and applied parameter overrides
   const agentContext = useMemo(
-    () =>
-      buildAgentContext(currentProject, agentState.mode, {
+    () => {
+      const baseContext = buildAgentContext(currentProject, agentState.mode, {
         selectedTechnique: agentState.selectedTechnique,
         includedTechniques,
         workspaceParameters,
         isLocked: isConditionLocked,
-      }),
+      });
+      return isUploadedContext ? withUploadedEvidenceContext(baseContext, evidenceSnapshot) : baseContext;
+    },
     [
       currentProject,
       agentState.mode,
@@ -2167,6 +2262,8 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
       includedTechniques,
       workspaceParameters,
       isConditionLocked,
+      isUploadedContext,
+      evidenceSnapshot,
     ],
   );
   const focusedEvidenceSource = useMemo(
@@ -2386,7 +2483,11 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
           {/* Boundary Compact Chip */}
           <div className="h-7 px-2 flex items-center gap-1 bg-emerald-50 border border-emerald-200 rounded text-[10px] font-semibold text-emerald-700">
             <CheckCircle2 size={10} />
+<<<<<<< Updated upstream
             <span>{isUploadedContext ? 'Validation limited' : (evidenceSnapshot.validationGaps.length > 0 ? 'Boundary gated' : 'Boundary ready')}</span>
+=======
+            <span>{isUploadedContext ? 'Validation limited' : ((evidenceSnapshot.validationGaps?.length ?? 0) > 0 ? 'Boundary gated' : 'Boundary ready')}</span>
+>>>>>>> Stashed changes
           </div>
 
           <div className="flex-1" />
@@ -2557,13 +2658,13 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
               </div>
               <div>
                 <span className="font-semibold text-slate-600">Validation gaps:</span>
-                <span className="ml-2 text-slate-700">{evidenceSnapshot.validationGaps.length} identified</span>
+                <span className="ml-2 text-slate-700">{evidenceSnapshot.validationGaps?.length ?? 0} identified</span>
               </div>
-              {runtimeContext.sourceMode === 'google_drive_connected' && connectedAccountState.email && (
+              {runtimeContext.sourceMode === 'google_drive_connected' && (
                 <>
                   <div>
                     <span className="font-semibold text-slate-600">Connected account:</span>
-                    <span className="ml-2 text-slate-700">{connectedAccountState.email}</span>
+                    <span className="ml-2 text-slate-700">{connectedAccountState.providerLabel}</span>
                   </div>
                   <div>
                     <span className="font-semibold text-slate-600">Drive capabilities:</span>
@@ -2605,8 +2706,8 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
         <LeftSidebar
           currentDataset={selectedDataset}
           currentProject={selectedProject}
-          context={agentState.context}
-          isRunning={runningGuardRef.current}
+          uploadedEvidenceSearch={evidenceRouteSearch || undefined}
+          uploadedTechnique={evidenceSnapshot.primaryTechnique.toLowerCase()}
         />
 
         {/* Center Column */}

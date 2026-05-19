@@ -48,6 +48,7 @@ import {
   type PipelineStepStatus,
 } from '../../data/analysisSessions';
 import type { DemoDataset, Technique } from '../../data/demoProjects';
+import type { TechniqueId } from '../../data/demoProjectRegistry';
 import {
   readParameterState,
   setParameterOverride,
@@ -514,6 +515,8 @@ function buildQuickGraphData(session: AnalysisSession | null) {
 
   if (uploadedRun && uploadedRun.points.length > 0) {
     return {
+      kind: 'graph' as const,
+      type: session.technique.toUpperCase() as TechniqueId,
       data: uploadedRun.points,
       peaks: uploadedRun.extractedFeatures.map((feature) => ({
         position: feature.position,
@@ -543,6 +546,8 @@ function buildQuickGraphData(session: AnalysisSession | null) {
   });
 
   return {
+    kind: 'graph' as const,
+    type: session.technique.toUpperCase() as TechniqueId,
     data: points,
     peaks: markers.map((marker) => ({
       position: marker.position,
@@ -558,6 +563,8 @@ function buildQuickGraphData(session: AnalysisSession | null) {
 function buildSnapshotGraphData(dataset: DemoDataset | null) {
   if (!dataset?.dataPoints.length) return null;
   return {
+    kind: 'graph' as const,
+    type: dataset.technique.toUpperCase() as TechniqueId,
     data: dataset.dataPoints,
     peaks: dataset.detectedFeatures.map((feature) => ({
       position: feature.position,
@@ -784,19 +791,19 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
     : '';
   const evidenceRouteSuffix = evidenceRouteSearch ? `?${evidenceRouteSearch}` : '';
   const notebookPath = isUploadedContext && evidenceRouteSuffix
-    ? `/notebook${evidenceRouteSuffix}`
+    ? `/notebook${evidenceRouteSuffix}&template=research`
     : project ? `/notebook?project=${project.id}${demoLinkSuffix}` : '/notebook';
   const agentPath = isUploadedContext && evidenceRouteSuffix
     ? `/demo/agent${evidenceRouteSuffix}`
     : project ? `/demo/agent?project=${project.id}${demoLinkSuffix}` : '/demo/agent';
   const reportPath = isUploadedContext && evidenceRouteSuffix
-    ? `/reports${evidenceRouteSuffix}`
+    ? `/report${evidenceRouteSuffix}&template=xrd-summary`
     : project ? `/reports?project=${project.id}${demoLinkSuffix}` : '/reports';
   const analysisReturnPath = isUploadedContext
     ? '/analysis?source=user_uploaded'
     : '/analysis';
   const workspacePath = isUploadedContext && evidenceRouteSuffix
-    ? `/workspace${evidenceRouteSuffix}`
+    ? `/workspace/${technique}?mode=quick&${evidenceRouteSearch}`
     : project ? `/workspace?project=${project.id}${demoLinkSuffix}` : '/workspace';
   const quickStatusLabel = isQuickMode ? (sessionState.dirty ? 'Draft · Unsaved' : 'Draft') : '';
   const processingStateLabel = sessionState.pendingRecalculation
@@ -912,7 +919,11 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
           datasetId: uploadedRun.id,
           sampleName: uploadedRun.sampleIdentity,
           sourceLabel: uploadedRun.fileName,
+<<<<<<< Updated upstream
           dataPoints: uploadedRun.points.map(p => ({ twoTheta: p.x, intensity: p.y })),
+=======
+          dataPoints: uploadedRun.points.map(p => ({ x: p.x, y: p.y })),
+>>>>>>> Stashed changes
         }, processingParams);
 
         // Convert detected peaks to TechniqueFeature format
@@ -921,10 +932,17 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
           technique: 'XRD' as const,
           label: `Peak at ${peak.position.toFixed(2)}°`,
           position: peak.position,
+<<<<<<< Updated upstream
           intensity: peak.relativeIntensity,
           relativeIntensity: peak.relativeIntensity,
           prominence: peak.relativeIntensity,
           context: peak.possiblePhases.join(', ') || 'Unknown phase',
+=======
+          intensity: peak.intensity,
+          relativeIntensity: peak.intensity,
+          prominence: peak.prominence,
+          context: peak.label || 'Unknown phase',
+>>>>>>> Stashed changes
         }));
 
         // Update uploaded run with processing results
@@ -999,19 +1017,41 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
           : { hasOverrides: false, overrideCount: 0, lastUpdatedBy: 'default', updatedAt: null };
 
         const result = runRamanProcessing({
+<<<<<<< Updated upstream
           ramanShift: uploadedRun.points.map(p => p.x),
           intensity: uploadedRun.points.map(p => p.y),
+=======
+          id: uploadedRun.id,
+          label: uploadedRun.fileName,
+          sampleName: uploadedRun.sampleIdentity,
+          fileName: uploadedRun.fileName,
+          signal: {
+            ramanShift: uploadedRun.points.map(p => p.x),
+            intensity: uploadedRun.points.map(p => p.y),
+          },
+          baseline: [],
+          peaks: [],
+>>>>>>> Stashed changes
         }, processingParams);
 
         const extractedFeatures: TechniqueFeature[] = result.peaks.map((peak, index) => ({
           id: `raman-peak-${index}`,
           technique: 'Raman' as const,
+<<<<<<< Updated upstream
           label: `Peak at ${peak.position.toFixed(1)} cm⁻¹`,
           position: peak.position,
           intensity: peak.intensity,
           relativeIntensity: peak.relativeIntensity,
           prominence: peak.relativeIntensity,
           context: peak.assignedMode?.mode || 'Unassigned',
+=======
+          label: `Peak at ${peak.ramanShift.toFixed(1)} cm⁻¹`,
+          position: peak.ramanShift,
+          intensity: peak.intensity,
+          relativeIntensity: peak.intensity,
+          prominence: peak.prominence,
+          context: peak.assignment || 'Unassigned',
+>>>>>>> Stashed changes
         }));
 
         const updateSuccess = updateUploadedRunProcessingResults(routeContext.uploadedRunId, {
@@ -1085,19 +1125,43 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
           : { hasOverrides: false, overrideCount: 0, lastUpdatedBy: 'default', updatedAt: null };
 
         const result = runXpsProcessing({
+<<<<<<< Updated upstream
           bindingEnergy: uploadedRun.points.map(p => p.x),
           intensity: uploadedRun.points.map(p => p.y),
+=======
+          id: uploadedRun.id,
+          label: uploadedRun.fileName,
+          region: 'Survey',
+          sampleName: uploadedRun.sampleIdentity,
+          fileName: uploadedRun.fileName,
+          signal: {
+            bindingEnergy: uploadedRun.points.map(p => p.x),
+            intensity: uploadedRun.points.map(p => p.y),
+          },
+          baseline: [],
+          peaks: [],
+          matches: [],
+>>>>>>> Stashed changes
         }, processingParams);
 
         const extractedFeatures: TechniqueFeature[] = result.peaks.map((peak, index) => ({
           id: `xps-peak-${index}`,
           technique: 'XPS' as const,
+<<<<<<< Updated upstream
           label: `Peak at ${peak.position.toFixed(1)} eV`,
           position: peak.position,
           intensity: peak.intensity,
           relativeIntensity: (peak.intensity / Math.max(...result.peaks.map(p => p.intensity))) * 100,
           prominence: peak.intensity,
           context: peak.assignment?.element || 'Unassigned',
+=======
+          label: `Peak at ${peak.bindingEnergy.toFixed(1)} eV`,
+          position: peak.bindingEnergy,
+          intensity: peak.intensity,
+          relativeIntensity: (peak.intensity / Math.max(...result.peaks.map(p => p.intensity))) * 100,
+          prominence: peak.intensity,
+          context: peak.assignment || 'Unassigned',
+>>>>>>> Stashed changes
         }));
 
         const updateSuccess = updateUploadedRunProcessingResults(routeContext.uploadedRunId, {
@@ -1171,19 +1235,42 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
           : { hasOverrides: false, overrideCount: 0, lastUpdatedBy: 'default', updatedAt: null };
 
         const result = runFtirProcessing({
+<<<<<<< Updated upstream
           wavenumber: uploadedRun.points.map(p => p.x),
           absorbance: uploadedRun.points.map(p => p.y),
+=======
+          id: uploadedRun.id,
+          label: uploadedRun.fileName,
+          sampleName: uploadedRun.sampleIdentity,
+          fileName: uploadedRun.fileName,
+          signal: {
+            wavenumber: uploadedRun.points.map(p => p.x),
+            absorbance: uploadedRun.points.map(p => p.y),
+          },
+          baseline: [],
+          bands: [],
+          matches: [],
+>>>>>>> Stashed changes
         }, processingParams);
 
         const extractedFeatures: TechniqueFeature[] = result.bands.map((band, index) => ({
           id: `ftir-band-${index}`,
           technique: 'FTIR' as const,
+<<<<<<< Updated upstream
           label: `Band at ${band.position.toFixed(0)} cm⁻¹`,
           position: band.position,
           intensity: band.intensity,
           relativeIntensity: (band.intensity / Math.max(...result.bands.map(b => b.intensity))) * 100,
           prominence: band.intensity,
           context: band.assignment?.functionalGroup || 'Unassigned',
+=======
+          label: `Band at ${band.wavenumber.toFixed(0)} cm⁻¹`,
+          position: band.wavenumber,
+          intensity: band.intensity,
+          relativeIntensity: (band.intensity / Math.max(...result.bands.map(b => b.intensity))) * 100,
+          prominence: band.intensity,
+          context: band.assignment || 'Unassigned',
+>>>>>>> Stashed changes
         }));
 
         const updateSuccess = updateUploadedRunProcessingResults(routeContext.uploadedRunId, {
@@ -1569,7 +1656,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
                   Project: Not attached
                 </span>
               )}
-              {!isQuickMode && !project && (
+              {!isQuickMode && !isUploadedContext && !project && (
                 <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-700">
                   No project linked
                 </span>
@@ -1770,9 +1857,19 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
               <div className="flex min-h-[420px] flex-1 items-center justify-center px-6 py-8 text-center">
                 <div className="max-w-md">
                   <AlertTriangle size={28} className="mx-auto text-amber-500" />
-                  <h2 className="mt-3 text-sm font-bold text-text-main">No project-linked {config.label} dataset</h2>
+                  <h2 className="mt-3 text-sm font-bold text-text-main">
+                    {isUploadedContext
+                      ? evidenceSnapshot?.activeDataset
+                        ? 'Graph data unavailable'
+                        : 'Uploaded evidence not found'
+                      : `No project-linked ${config.label} dataset`}
+                  </h2>
                   <p className="mt-1 text-xs leading-relaxed text-text-muted">
-                    {project
+                    {isUploadedContext
+                      ? evidenceSnapshot?.activeDataset
+                        ? 'The uploaded evidence snapshot loaded, but it does not include graph points for this technique.'
+                        : 'The requested session/upload pair was not found in local browser storage. Re-upload the evidence or open a saved user_uploaded session.'
+                      : project
                       ? `${config.label} evidence is not available for the selected project. The route remains project-linked and records the evidence gap instead of loading an unrelated dataset.`
                       : `Open this workspace from a project or attach a dataset to begin ${config.label} processing.`}
                   </p>

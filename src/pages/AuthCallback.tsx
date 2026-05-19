@@ -11,7 +11,7 @@ type GoogleUserInfo = {
 export default function AuthCallback() {
   const navigate = useNavigate();
   const { signIn } = useAuth();
-  const [status, setStatus] = useState("Signing in with Google...");
+  const [status, setStatus] = useState("Checking Google authentication...");
 
   useEffect(() => {
     const run = async () => {
@@ -30,16 +30,20 @@ export default function AuthCallback() {
         console.log("[AuthCallback] Error param:", error);
 
         if (error) {
+          setStatus("Google sign-in failed. Redirecting to sign in...");
           throw new Error(`Google OAuth error: ${error}`);
         }
 
         if (!accessToken) {
-          console.error("[AuthCallback] No access token in URL hash");
-          throw new Error("Missing Google access token");
+          console.warn("[AuthCallback] No Google access token in URL hash");
+          setStatus("No Google sign-in response found. Redirecting to sign in...");
+          setTimeout(() => {
+            navigate("/signin", { replace: true });
+          }, 2000);
+          return;
         }
 
         console.log("[AuthCallback] Fetching user profile from Google");
-        console.log("[AuthCallback] Access token (first 20 chars):", accessToken.substring(0, 20) + "...");
         
         const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
           headers: {
@@ -93,7 +97,11 @@ export default function AuthCallback() {
           stack: error instanceof Error ? error.stack : undefined
         });
         
-        setStatus("Authentication failed. Redirecting to sign in...");
+        setStatus((current) =>
+          current.includes("Redirecting")
+            ? current
+            : "Google authentication failed. Redirecting to sign in..."
+        );
         setTimeout(() => {
           navigate("/signin", { replace: true });
         }, 2000);

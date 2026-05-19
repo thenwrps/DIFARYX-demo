@@ -1,265 +1,206 @@
+import { lazy, Suspense, type ReactElement } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 
-import Landing from "./pages/Landing";
-import Dashboard from "./pages/Dashboard";
-import ProjectDetail from "./pages/ProjectDetail";
-import MultiTechWorkspace from "./pages/MultiTechWorkspace";
-import TechniqueWorkspace from "./pages/TechniqueWorkspace";
-import WorkspaceLauncher from "./pages/WorkspaceLauncher";
-import NotebookLab from "./pages/NotebookLab";
-import ReportBuilder from "./pages/ReportBuilder";
-import AgentDemo from "./pages/AgentDemo";
-import HistoryPage from "./pages/History";
-import SettingsPage from "./pages/Settings";
 import SignIn from "./pages/SignIn";
 import AuthCallback from "./pages/AuthCallback";
-import XRDWorkspace from "./pages/XRDWorkspace";
-import XPSWorkspace from "./pages/XPSWorkspace";
-import FTIRWorkspace from "./pages/FTIRWorkspace";
-import RamanWorkspace from "./pages/RamanWorkspace";
-import FusionWorkspace from "./pages/FusionWorkspace";
-import {
-  AnalysisNew,
-  AnalysisSessionPage,
-  AnalysisWorkspaceHome,
-  ProjectEvidenceRegistry,
-} from "./pages/AnalysisWorkspace";
 
 import { AuthProvider } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
+
+const Landing = lazy(() => import("./pages/Landing"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const ProjectDetail = lazy(() => import("./pages/ProjectDetail"));
+const MultiTechWorkspace = lazy(() => import("./pages/MultiTechWorkspace"));
+const TechniqueWorkspace = lazy(() => import("./pages/TechniqueWorkspace"));
+const WorkspaceLauncher = lazy(() => import("./pages/WorkspaceLauncher"));
+const NotebookLab = lazy(() => import("./pages/NotebookLab"));
+const ReportBuilder = lazy(() => import("./pages/ReportBuilder"));
+const AgentDemo = lazy(() => import("./pages/AgentDemo"));
+const HistoryPage = lazy(() => import("./pages/History"));
+const SettingsPage = lazy(() => import("./pages/Settings"));
+const XRDWorkspace = lazy(() => import("./pages/XRDWorkspace"));
+const XPSWorkspace = lazy(() => import("./pages/XPSWorkspace"));
+const FTIRWorkspace = lazy(() => import("./pages/FTIRWorkspace"));
+const RamanWorkspace = lazy(() => import("./pages/RamanWorkspace"));
+const FusionWorkspace = lazy(() => import("./pages/FusionWorkspace"));
+const AnalysisWorkspaceHome = lazy(() =>
+  import("./pages/AnalysisWorkspace").then((module) => ({
+    default: module.AnalysisWorkspaceHome,
+  }))
+);
+const AnalysisNew = lazy(() =>
+  import("./pages/AnalysisWorkspace").then((module) => ({
+    default: module.AnalysisNew,
+  }))
+);
+const AnalysisSessionPage = lazy(() =>
+  import("./pages/AnalysisWorkspace").then((module) => ({
+    default: module.AnalysisSessionPage,
+  }))
+);
+const ProjectEvidenceRegistry = lazy(() =>
+  import("./pages/AnalysisWorkspace").then((module) => ({
+    default: module.ProjectEvidenceRegistry,
+  }))
+);
+
+function AppRouteLoading() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6 text-slate-700">
+      <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm font-semibold shadow-sm">
+        Loading workspace...
+      </div>
+    </main>
+  );
+}
+
+function protectedRoute(element: ReactElement) {
+  return <ProtectedRoute>{element}</ProtectedRoute>;
+}
 
 function App() {
   return (
     <AuthProvider>
       <Router>
-        <Routes>
-          <Route path="/" element={<Landing />} />
+        <Suspense fallback={<AppRouteLoading />}>
+          <Routes>
+            <Route path="/" element={<Landing />} />
 
-          <Route path="/login" element={<SignIn />} />
-          <Route path="/signin" element={<SignIn />} />
-          <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route path="/login" element={<SignIn />} />
+            <Route path="/signin" element={<SignIn />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
 
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/projects" element={<Dashboard />} />
+            <Route path="/dashboard" element={protectedRoute(<Dashboard />)} />
+            <Route path="/projects" element={protectedRoute(<Dashboard />)} />
 
-          <Route
-            path="/project/:projectId"
-            element={
-              <ProtectedRoute>
-                <ProjectDetail />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/project/:projectId"
+              element={protectedRoute(<ProjectDetail />)}
+            />
 
-          <Route
-            path="/project/:projectId/evidence"
-            element={
-              <ProtectedRoute>
-                <ProjectEvidenceRegistry />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/project/:projectId/evidence"
+              element={protectedRoute(<ProjectEvidenceRegistry />)}
+            />
 
-          <Route
-            path="/analysis"
-            element={
-              <ProtectedRoute>
-                <AnalysisWorkspaceHome />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/analysis"
+              element={protectedRoute(<AnalysisWorkspaceHome />)}
+            />
 
-          <Route
-            path="/analysis/new"
-            element={
-              <ProtectedRoute>
-                <AnalysisNew />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/analysis/new"
+              element={protectedRoute(<AnalysisNew />)}
+            />
 
-          <Route
-            path="/analysis/session/:analysisId"
-            element={
-              <ProtectedRoute>
-                <AnalysisSessionPage />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/analysis/session/:analysisId"
+              element={protectedRoute(<AnalysisSessionPage />)}
+            />
 
-          <Route
-            path="/analysis/session/:analysisId/save"
-            element={
-              <ProtectedRoute>
-                <AnalysisSessionPage />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/analysis/session/:analysisId/save"
+              element={protectedRoute(<AnalysisSessionPage />)}
+            />
 
-          <Route
-            path="/analysis/session/:analysisId/attach"
-            element={
-              <ProtectedRoute>
-                <AnalysisSessionPage />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/analysis/session/:analysisId/attach"
+              element={protectedRoute(<AnalysisSessionPage />)}
+            />
 
-          <Route
-            path="/analysis/session/:analysisId/export"
-            element={
-              <ProtectedRoute>
-                <AnalysisSessionPage />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/analysis/session/:analysisId/export"
+              element={protectedRoute(<AnalysisSessionPage />)}
+            />
 
-          <Route
-            path="/analysis/session/:analysisId/versions"
-            element={
-              <ProtectedRoute>
-                <AnalysisSessionPage />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/analysis/session/:analysisId/versions"
+              element={protectedRoute(<AnalysisSessionPage />)}
+            />
 
-          <Route
-            path="/workspace"
-            element={
-              <ProtectedRoute>
-                <WorkspaceLauncher />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/workspace"
+              element={protectedRoute(<WorkspaceLauncher />)}
+            />
 
-          <Route
-            path="/workspace/multi"
-            element={
-              <ProtectedRoute>
-                <MultiTechWorkspace />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/workspace/multi"
+              element={protectedRoute(<MultiTechWorkspace />)}
+            />
 
-          {/* Analysis Workspace alias — project-scoped entry that surfaces
-             technique selection and recent workspace history for the project. */}
-          <Route
-            path="/workspace/analysis"
-            element={
-              <ProtectedRoute>
-                <WorkspaceLauncher />
-              </ProtectedRoute>
-            }
-          />
+            {/* Analysis Workspace alias - project-scoped entry that surfaces
+               technique selection and recent workspace history for the project. */}
+            <Route
+              path="/workspace/analysis"
+              element={protectedRoute(<WorkspaceLauncher />)}
+            />
 
-          <Route
-            path="/workspace/xrd"
-            element={
-              <ProtectedRoute>
-                <XRDWorkspace />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/workspace/xrd"
+              element={protectedRoute(<XRDWorkspace />)}
+            />
 
-          <Route
-            path="/workspace/xps"
-            element={
-              <ProtectedRoute>
-                <XPSWorkspace />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/workspace/xps"
+              element={protectedRoute(<XPSWorkspace />)}
+            />
 
-          <Route
-            path="/workspace/ftir"
-            element={
-              <ProtectedRoute>
-                <FTIRWorkspace />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/workspace/ftir"
+              element={protectedRoute(<FTIRWorkspace />)}
+            />
 
-          <Route
-            path="/workspace/raman"
-            element={
-              <ProtectedRoute>
-                <RamanWorkspace />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/workspace/raman"
+              element={protectedRoute(<RamanWorkspace />)}
+            />
 
-          <Route
-            path="/workspace/fusion"
-            element={
-              <ProtectedRoute>
-                <FusionWorkspace />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/workspace/fusion"
+              element={protectedRoute(<FusionWorkspace />)}
+            />
 
-          <Route
-            path="/workspace/:technique"
-            element={
-              <ProtectedRoute>
-                <TechniqueWorkspace />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/workspace/:technique"
+              element={protectedRoute(<TechniqueWorkspace />)}
+            />
 
-          <Route
-            path="/notebook"
-            element={
-              <ProtectedRoute>
-                <NotebookLab />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/notebook"
+              element={protectedRoute(<NotebookLab />)}
+            />
 
-          <Route
-            path="/reports"
-            element={
-              <ProtectedRoute>
-                <ReportBuilder />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/reports"
+              element={protectedRoute(<ReportBuilder />)}
+            />
 
-          <Route
-            path="/report"
-            element={
-              <ProtectedRoute>
-                <ReportBuilder />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/report"
+              element={protectedRoute(<ReportBuilder />)}
+            />
 
-          <Route
-            path="/history"
-            element={
-              <ProtectedRoute>
-                <HistoryPage />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/history"
+              element={protectedRoute(<HistoryPage />)}
+            />
 
-          <Route
-            path="/settings"
-            element={
-              <ProtectedRoute>
-                <SettingsPage />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/settings"
+              element={protectedRoute(<SettingsPage />)}
+            />
 
-          <Route
-            path="/demo/agent"
-            element={
-              <ProtectedRoute>
-                <AgentDemo />
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
+            <Route
+              path="/agent"
+              element={protectedRoute(<AgentDemo />)}
+            />
+
+            <Route
+              path="/demo/agent"
+              element={protectedRoute(<AgentDemo />)}
+            />
+          </Routes>
+        </Suspense>
       </Router>
     </AuthProvider>
   );

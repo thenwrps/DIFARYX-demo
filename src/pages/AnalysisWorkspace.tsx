@@ -82,7 +82,7 @@ const ROUTE_FLOW = [
 function quickWorkspacePath(session: AnalysisSession) {
   const source = session.source === 'user_uploaded' ? 'user_uploaded' : 'quick_analysis';
   const uploadedRunParam = session.uploadedRunId ? `&upload=${encodeURIComponent(session.uploadedRunId)}` : '';
-  return `/workspace/${session.technique}?mode=quick&sessionId=${encodeURIComponent(session.analysisId)}&source=${source}${uploadedRunParam}&project_id=`;
+  return `/workspace/${session.technique}?mode=quick&sessionId=${encodeURIComponent(session.analysisId)}&source=${source}${uploadedRunParam}&technique=${session.technique}`;
 }
 
 function techniqueLabel(technique: AnalysisTechnique) {
@@ -180,11 +180,11 @@ function userUploadedNextPath(session: AnalysisSession, next: string | null) {
 
 function uploadHandoffPath(session: AnalysisSession, destination: 'agent' | 'notebook' | 'report' | 'multi') {
   const uploadParam = session.uploadedRunId ? `&upload=${encodeURIComponent(session.uploadedRunId)}` : '';
-  const sessionParam = `sessionId=${encodeURIComponent(session.analysisId)}&source=user_uploaded${uploadParam}`;
+  const sessionParam = `source=user_uploaded&sessionId=${encodeURIComponent(session.analysisId)}${uploadParam}&technique=${session.technique}`;
   if (destination === 'agent') return `/demo/agent?${sessionParam}`;
-  if (destination === 'notebook') return `/notebook?${sessionParam}`;
+  if (destination === 'notebook') return `/notebook?${sessionParam}&template=research`;
   if (destination === 'multi') return `/workspace/multi?${sessionParam}`;
-  return `/reports?${sessionParam}`;
+  return `/report?${sessionParam}&template=xrd-summary`;
 }
 
 function getFeatureColumns(features: AnalysisFeature[]) {

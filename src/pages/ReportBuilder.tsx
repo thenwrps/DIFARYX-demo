@@ -29,6 +29,7 @@ import {
 } from '../data/workflowPipeline';
 import { exportDemoArtifact, type DemoExportFormat, type DemoExportSection } from '../utils/demoExport';
 import { getProjectEvidenceSnapshot, type ProjectEvidenceSnapshot } from '../utils/evidenceSnapshot';
+import { createUploadedEvidenceRegistryProject } from '../utils/uploadedEvidenceProjectContext';
 import {
   getRuntimeBadgeClass,
   getRuntimeBadgeLabel,
@@ -291,6 +292,8 @@ function UploadedReportContext({ routeContext }: { routeContext: EvidenceRouteCo
     projectIdExplicit: false,
   });
   const dataset = snapshot.activeDataset;
+  const graphData = dataset?.dataPoints ?? [];
+  const features = dataset?.detectedFeatures ?? [];
   const evidenceQuery = buildEvidenceRouteSearch(routeContext);
   const suffix = evidenceQuery ? `?${evidenceQuery}` : '';
   const technique = snapshot.primaryTechnique.toLowerCase();
@@ -307,6 +310,17 @@ function UploadedReportContext({ routeContext }: { routeContext: EvidenceRouteCo
     {
       heading: 'Evidence Summary',
       lines: [snapshot.evidenceEntries[0]?.support ?? 'Uploaded evidence is available as metadata-only context.'],
+    },
+    {
+      heading: 'Graph and Detected Features',
+      lines: [
+        dataset
+          ? `Graph points: ${graphData.length}. Detected features: ${features.length}.`
+          : 'Uploaded evidence not found.',
+        ...(features.length
+          ? features.slice(0, 8).map((feature) => `${feature.label}: ${feature.position} / intensity ${feature.intensity}`)
+          : ['Graph data unavailable until the matching local upload is restored.']),
+      ],
     },
     {
       heading: 'Validation Boundary',
@@ -382,7 +396,7 @@ function UploadedReportContext({ routeContext }: { routeContext: EvidenceRouteCo
                 <Link to={`/demo/agent${suffix}`} className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-white px-3 text-xs font-bold text-text-main hover:bg-slate-50">
                   Send to Agent
                 </Link>
-                <Link to={`/notebook${suffix}`} className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-white px-3 text-xs font-bold text-text-main hover:bg-slate-50">
+                <Link to={`/notebook${suffix}${suffix ? '&' : '?'}template=research`} className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-white px-3 text-xs font-bold text-text-main hover:bg-slate-50">
                   Send to Notebook
                 </Link>
               </div>
@@ -409,41 +423,60 @@ export default function ReportBuilder() {
     return <UploadedReportContext routeContext={routeContext} />;
   }
 
-  if (effectiveWorkspaceMode === 'user' && requestedProjectId && isKnownProjectId(requestedProjectId)) {
+  // Show project prompt only for user mode with known demo project (but not uploaded evidence)
+  if (effectiveWorkspaceMode === 'user' && requestedProjectId && isKnownProjectId(requestedProjectId) && !routeContext.isUploadedContext) {
     return <ReportDemoProjectPrompt projectId={requestedProjectId} />;
   }
 
-  if (effectiveWorkspaceMode === 'user') {
+  if (effectiveWorkspaceMode === 'user' && !routeContext.isUploadedContext) {
     return <ReportEmptyState email={user?.email} />;
   }
 
-  return <ReportBuilderContent />;
+  return <ReportBuilderContent routeContext={routeContext} />;
 }
 
-function ReportBuilderContent() {
+function ReportBuilderContent({ routeContext }: { routeContext: EvidenceRouteContext }) {
   const [searchParams] = useSearchParams();
   const requestedProjectId = searchParams.get('project');
-  const project = (getProject(requestedProjectId) ?? getProject(null))!;
-  const registryProject = getRegistryProject(project.id);
+  const isUploadedContext = routeContext.isUploadedContext;
+  const project = isUploadedContext
+    ? null
+    : (getProject(requestedProjectId) ?? getProject(null))!;
+
+  // Get evidence snapshot first for uploaded context
+  const evidenceSnapshot = useMemo(() => getProjectEvidenceSnapshot(isUploadedContext ? null : project?.id, {
+    source: routeContext.source,
+    analysisSessionId: routeContext.sessionId,
+    uploadedRunId: routeContext.uploadedRunId,
+    driveFileId: routeContext.driveFileId,
+  }), [isUploadedContext, project?.id, routeContext]);
+
+  // For uploaded context, create safe registry project from evidence snapshot
+  const registryProject = isUploadedContext
+    ? createUploadedEvidenceRegistryProject(evidenceSnapshot)
+    : getRegistryProject(project!.id);
+
+  // Use registryProject._raw as the source of truth for project data
+  const currentProject = registryProject._raw;
+
   const templateMode = normalizeNotebookTemplateMode(searchParams.get('template'));
   const [feedback, setFeedback] = useState('');
   const [approvalAction, setApprovalAction] = useState<ApprovalActionPreview | null>(null);
-  const evidenceSnapshot = useMemo(() => getProjectEvidenceSnapshot(project.id, {
-    source: searchParams.get('source'),
-    analysisSessionId: searchParams.get('sessionId') ?? searchParams.get('analysisId'),
-    uploadedRunId: searchParams.get('upload') ?? searchParams.get('uploadedRunId'),
-    driveFileId: searchParams.get('driveFileId') ?? searchParams.get('driveImportId'),
-  }), [project.id, feedback, searchParams]);
 
-  // Bundle gating: only create bundle when appropriate
+  // Bundle gating: only create bundle when appropriate (not for uploaded evidence)
   const evidenceBundle = useMemo(() => {
-    const techniqueCount = evidenceSnapshot.availableTechniques.length;
+    if (isUploadedContext) {
+      return null;
+    }
+
+    const availableTechniques = evidenceSnapshot.availableTechniques ?? [];
+    const techniqueCount = availableTechniques.length;
     const context: import('../runtime/evidenceBundle').BundleCreationContext = {
       route: '/reports',
       techniqueCount,
       hasMultiTechIntent: techniqueCount >= 2 || searchParams.get('bundle') === 'mixed',
       isDemoProject: evidenceSnapshot.sourceMode === 'demo_preloaded',
-      hasDemoPreloadedBundle: project.id === 'cu-fe2o4-spinel' && techniqueCount >= 2,
+      hasDemoPreloadedBundle: currentProject.id === 'cu-fe2o4-spinel' && techniqueCount >= 2,
       userAction: 'send_to_report',
     };
 
@@ -458,31 +491,31 @@ function ReportBuilderContent() {
       lifecycleState: 'sent_to_report',
       creationReason: 'notebook_report_handoff',
     });
-  }, [evidenceSnapshot, searchParams, project.id]);
+  }, [evidenceSnapshot, searchParams, currentProject.id]);
 
   // Read workspace parameters for the current project
   const workspaceParameters = useMemo(
-    () => readProjectWorkspaceParameters(project.id, getProjectTechniques(project)),
-    [project.id],
+    () => readProjectWorkspaceParameters(currentProject.id, getProjectTechniques(currentProject)),
+    [currentProject.id],
   );
 
   const workflowProcessingResult = useMemo(
-    () => evidenceSnapshot.reportContext ?? getLatestProcessingResult(project.id) ?? createProcessingResultFromXrdDemo(project.id, workspaceParameters),
-    [project.id, evidenceSnapshot.reportContext, workspaceParameters],
+    () => evidenceSnapshot.reportContext ?? getLatestProcessingResult(currentProject.id) ?? createProcessingResultFromXrdDemo(currentProject.id, workspaceParameters),
+    [currentProject.id, evidenceSnapshot.reportContext, workspaceParameters],
   );
   const workflowRefinement = useMemo(
-    () => getLatestAgentDiscussionRefinement(project.id, templateMode) ?? refineDiscussionFromProcessing(workflowProcessingResult, templateMode),
-    [project.id, templateMode, workflowProcessingResult],
+    () => getLatestAgentDiscussionRefinement(currentProject.id, templateMode) ?? refineDiscussionFromProcessing(workflowProcessingResult, templateMode),
+    [currentProject.id, templateMode, workflowProcessingResult],
   );
   const workflowNotebookEntry = useMemo(() => {
     const fromRoute = getNotebookEntry(searchParams.get('entry'));
-    if (fromRoute?.projectId === project.id) return fromRoute;
+    if (fromRoute?.projectId === currentProject.id) return fromRoute;
     return (
       (evidenceSnapshot.notebookContext?.templateMode === templateMode ? evidenceSnapshot.notebookContext : null) ??
-      getLatestNotebookEntry(project.id, templateMode) ??
+      getLatestNotebookEntry(currentProject.id, templateMode) ??
       createNotebookEntryFromRefinement(workflowRefinement, templateMode)
     );
-  }, [project.id, searchParams, templateMode, workflowRefinement, evidenceSnapshot.notebookContext]);
+  }, [currentProject.id, searchParams, templateMode, workflowRefinement, evidenceSnapshot.notebookContext]);
   const workflowReportSection = useMemo(
     () => createReportSectionFromNotebookEntry(workflowNotebookEntry),
     [workflowNotebookEntry],
@@ -508,13 +541,8 @@ function ReportBuilderContent() {
     : getDefaultConnectedAccountState();
   const reportVersion = `v${Math.max(1, Math.round(registryProject.reportReadiness / 20))}.0`;
   const preparedAt = new Date().toLocaleDateString();
-  const filenameBase = `difaryx_${project.id}_${reportTemplate.reportTemplate}_report`;
-  const uploadedRouteParams = new URLSearchParams();
-  ['source', 'bundle', 'sessionId', 'analysisId', 'upload', 'uploadedRunId', 'driveFileId', 'driveImportId'].forEach((key) => {
-    const value = searchParams.get(key);
-    if (value) uploadedRouteParams.set(key, value);
-  });
-  const uploadedRouteSuffix = uploadedRouteParams.toString() ? `&${uploadedRouteParams.toString()}` : '';
+  const filenameBase = `difaryx_${currentProject.id}_${reportTemplate.reportTemplate}_report`;
+  const uploadedRouteSearch = isUploadedContext ? buildEvidenceRouteSearch(routeContext) : '';
   const withDemoMode = (path: string) => path.includes('?') ? `${path}&mode=demo` : `${path}?mode=demo`;
 
   const showFeedback = (message: string) => {
@@ -535,7 +563,7 @@ function ReportBuilderContent() {
       destinationLabel,
       evidenceSnapshot,
       runtimeContext,
-      evidenceBundle,
+      evidenceBundle: evidenceBundle ?? undefined,
       riskLevel,
     });
     appendApprovalLedgerEntry(createApprovalLedgerEntry(action, 'preview_opened'));
@@ -555,7 +583,7 @@ function ReportBuilderContent() {
       destinationLabel,
       evidenceSnapshot,
       runtimeContext,
-      evidenceBundle,
+      evidenceBundle: evidenceBundle ?? undefined,
       riskLevel,
     });
     appendApprovalLedgerEntry(createApprovalLedgerEntry(action, 'local_preview_continued', {
@@ -703,14 +731,17 @@ function ReportBuilderContent() {
             </div>
             {evidenceBundle && (
               <div className="mt-3">
-                <ApprovalLedgerPanel projectId={project.id} bundleId={evidenceBundle.bundleId} limit={4} compact />
+                <ApprovalLedgerPanel projectId={currentProject.id} bundleId={evidenceBundle.bundleId} limit={4} compact />
               </div>
             )}
             <div className="mt-3 flex flex-col gap-2">
-              <Link to={`/notebook?project=${project.id}&mode=demo&template=${templateMode}&entry=${workflowNotebookEntry.id}${uploadedRouteSuffix}`} className="inline-flex h-8 items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-bold text-text-main hover:border-primary/40 hover:text-primary">
+              <Link to={isUploadedContext && uploadedRouteSearch
+                ? `/notebook?${uploadedRouteSearch}&template=research`
+                : `/notebook?project=${currentProject.id}&mode=demo&template=${templateMode}&entry=${workflowNotebookEntry.id}`}
+                className="inline-flex h-8 items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-bold text-text-main hover:border-primary/40 hover:text-primary">
                 Open source notebook <ArrowRight size={13} className="ml-1" />
               </Link>
-              <Link to={withDemoMode(getWorkspaceRoute(project))} className="inline-flex h-8 items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-bold text-text-main hover:border-primary/40 hover:text-primary">
+              <Link to={withDemoMode(getWorkspaceRoute(currentProject))} className="inline-flex h-8 items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-bold text-text-main hover:border-primary/40 hover:text-primary">
                 Open Workspace <ArrowRight size={13} className="ml-1" />
               </Link>
             </div>

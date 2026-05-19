@@ -3,6 +3,7 @@ import {
   type EffectiveWorkspaceMode,
   type WorkspaceMode,
 } from './workspaceMode';
+import { buildEvidenceContextQuery, parseEvidenceContext } from './evidenceContext';
 
 interface RouteAuthUserLike {
   provider?: string | null;
@@ -22,6 +23,7 @@ export interface EvidenceRouteContext {
   uploadedRunId: string | null;
   driveFileId: string | null;
   projectId: string | null;
+  technique: string | null;
   isUploadedContext: boolean;
   isGoogleConnectedContext: boolean;
   isDemoExplicit: boolean;
@@ -55,14 +57,17 @@ export function getEvidenceRouteContext({
   storedMode,
 }: EvidenceRouteContextOptions): EvidenceRouteContext {
   const params = normalizeSearchParams(searchParams);
+  const canonicalContext = parseEvidenceContext(params);
   const rawSource = params.get('source');
   const sessionId = firstParam(params, ['sessionId', 'analysisId', 'session']);
-  const uploadedRunId = firstParam(params, ['upload', 'uploadedRunId', 'uploadedRun']);
+  const uploadedRunId = firstParam(params, ['upload', 'uploadId', 'uploadedRunId', 'uploadedRun']);
   const driveFileId = firstParam(params, ['driveFileId', 'driveImportId']);
   const projectId = firstParam(params, ['project', 'project_id']);
+  const technique = canonicalContext?.technique ?? params.get('technique');
   const isDemoExplicit = params.get('mode') === 'demo';
   const isUploadedContext = Boolean(
-    rawSource === 'user_uploaded' ||
+    canonicalContext?.mode === 'uploaded' ||
+      rawSource === 'user_uploaded' ||
       rawSource === 'uploaded-beta' ||
       rawSource === 'quick_analysis' ||
       sessionId ||
@@ -91,6 +96,7 @@ export function getEvidenceRouteContext({
     uploadedRunId,
     driveFileId,
     projectId,
+    technique,
     isUploadedContext,
     isGoogleConnectedContext,
     isDemoExplicit,
@@ -106,11 +112,23 @@ export function hasUploadedEvidenceContext(searchParams?: URLSearchParams | stri
 }
 
 export function buildEvidenceRouteSearch(context: EvidenceRouteContext): string {
+  if (context.isUploadedContext && context.source === 'user_uploaded' && context.sessionId && context.uploadedRunId) {
+    return buildEvidenceContextQuery({
+      mode: 'uploaded',
+      source: 'user_uploaded',
+      sessionId: context.sessionId,
+      uploadId: context.uploadedRunId,
+      technique: context.technique ?? 'xrd',
+      projectId: context.projectId ?? undefined,
+    });
+  }
+
   const params = new URLSearchParams();
   if (context.isUploadedContext) params.set('source', 'user_uploaded');
   else if (context.source) params.set('source', context.source);
   if (context.sessionId) params.set('sessionId', context.sessionId);
   if (context.uploadedRunId) params.set('upload', context.uploadedRunId);
+  if (context.technique) params.set('technique', context.technique);
   if (context.driveFileId) params.set('driveFileId', context.driveFileId);
   return params.toString();
 }

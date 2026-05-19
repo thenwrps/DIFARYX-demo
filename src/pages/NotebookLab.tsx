@@ -72,13 +72,9 @@ import {
   getConditionLockStatusLabel,
 } from '../data/experimentConditionLock';
 import { getProjectEvidenceSnapshot, type ProjectEvidenceSnapshot } from '../utils/evidenceSnapshot';
-import {
-  getRuntimeBadgeClass,
-  getRuntimeBadgeLabel,
-  requiresApproval,
-} from '../runtime/difaryxRuntimeMode';
-import { ApprovalActionDialog } from '../components/runtime/ApprovalActionDialog';
+import { createUploadedEvidenceRegistryProject } from '../utils/uploadedEvidenceProjectContext';
 import { ConnectedAccountStatus } from '../components/runtime/ConnectedAccountStatus';
+import { getRuntimeBadgeClass, getRuntimeBadgeLabel, requiresApproval } from '../runtime/difaryxRuntimeMode';
 import {
   createApprovalActionPreview,
   type ApprovalActionPreview,
@@ -87,6 +83,7 @@ import {
 } from '../runtime/actionApproval';
 import { appendApprovalLedgerEntry, createApprovalLedgerEntry, summarizeApprovalLedger } from '../runtime/approvalLedger';
 import { ApprovalLedgerPanel } from '../components/runtime/ApprovalLedgerPanel';
+import { ApprovalActionDialog } from '../components/runtime/ApprovalActionDialog';
 import {
   getDefaultConnectedAccountState,
   getGoogleConnectedShellState,
@@ -615,10 +612,17 @@ function UploadedNotebookContext({ routeContext }: { routeContext: EvidenceRoute
     projectIdExplicit: false,
   });
   const dataset = snapshot.activeDataset;
+  const graphData = dataset?.dataPoints ?? [];
+  const features = dataset?.detectedFeatures ?? [];
   const evidenceQuery = buildEvidenceRouteSearch(routeContext);
   const suffix = evidenceQuery ? `?${evidenceQuery}` : '';
   const technique = snapshot.primaryTechnique.toLowerCase();
   const workspacePath = `/workspace/${technique}?mode=quick${evidenceQuery ? `&${evidenceQuery}` : ''}`;
+  const missingTitle = !dataset
+    ? 'Uploaded evidence not found'
+    : graphData.length === 0
+      ? 'Graph data unavailable'
+      : null;
 
   return (
     <DashboardLayout>
@@ -644,6 +648,16 @@ function UploadedNotebookContext({ routeContext }: { routeContext: EvidenceRoute
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
             <Card className="rounded-lg bg-white p-5">
               <h2 className="text-lg font-bold text-text-main">Uploaded evidence summary</h2>
+              {missingTitle && (
+                <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                  <p className="font-bold">{missingTitle}</p>
+                  <p className="mt-1">
+                    {!dataset
+                      ? 'The requested session/upload pair was not found in local browser storage.'
+                      : 'The uploaded snapshot loaded, but no graph points are available for notebook rendering.'}
+                  </p>
+                </div>
+              )}
               <div className="mt-4 grid gap-3 md:grid-cols-3">
                 <div className="rounded-md border border-border bg-slate-50 p-3">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Active dataset</p>
@@ -665,6 +679,21 @@ function UploadedNotebookContext({ routeContext }: { routeContext: EvidenceRoute
                   <p className="mt-2 text-sm leading-relaxed text-text-muted">
                     {snapshot.evidenceEntries[0]?.support ?? 'Uploaded evidence is available as metadata-only context until more signal features are detected.'}
                   </p>
+                </section>
+                <section className="rounded-md border border-border bg-white p-3">
+                  <h3 className="text-sm font-bold text-text-main">Graph and detected reflections</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-text-muted">
+                    Graph points: {graphData.length}. Detected features: {features.length}.
+                  </p>
+                  {features.length > 0 && (
+                    <ul className="mt-2 space-y-1 text-sm text-text-muted">
+                      {features.slice(0, 6).map((feature, index) => (
+                        <li key={`${feature.position}-${index}`}>
+                          - {feature.label} / {feature.position} / intensity {feature.intensity}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </section>
                 <section className="rounded-md border border-border bg-white p-3">
                   <h3 className="text-sm font-bold text-text-main">Provenance</h3>
@@ -692,7 +721,7 @@ function UploadedNotebookContext({ routeContext }: { routeContext: EvidenceRoute
                 <Link to={`/demo/agent${suffix}`} className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-white px-3 text-xs font-bold text-text-main hover:bg-slate-50">
                   Send to Agent
                 </Link>
-                <Link to={`/reports${suffix}`} className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-white px-3 text-xs font-bold text-text-main hover:bg-slate-50">
+                <Link to={`/report${suffix}${suffix ? '&' : '?'}template=xrd-summary`} className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-white px-3 text-xs font-bold text-text-main hover:bg-slate-50">
                   Create Report
                 </Link>
               </div>
@@ -719,22 +748,42 @@ export default function NotebookLab() {
     return <UploadedNotebookContext routeContext={routeContext} />;
   }
 
+  // Show empty state only if user mode with no uploaded evidence and no explicit demo project
   if (effectiveWorkspaceMode === 'user' && requestedProjectId && isKnownProjectId(requestedProjectId)) {
     return <NotebookDemoProjectPrompt projectId={requestedProjectId} />;
   }
 
-  if (effectiveWorkspaceMode === 'user') {
+  if (effectiveWorkspaceMode === 'user' && !routeContext.isUploadedContext) {
     return <NotebookEmptyState email={user?.email} />;
   }
 
-  return <NotebookLabContent />;
+  return <NotebookLabContent routeContext={routeContext} />;
 }
 
-function NotebookLabContent() {
+function NotebookLabContent({ routeContext }: { routeContext: EvidenceRouteContext }) {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const project = (getProject(searchParams.get('project')) ?? getProject(null))!;
-  const registryProject = getRegistryProject(project.id);
+  const isUploadedContext = routeContext.isUploadedContext;
+  const project = isUploadedContext
+    ? null
+    : (getProject(searchParams.get('project')) ?? getProject(null))!;
+
+  // Get evidence snapshot first for uploaded context
+  const evidenceSnapshot = useMemo(() => getProjectEvidenceSnapshot(isUploadedContext ? null : project?.id, {
+    source: routeContext.source,
+    analysisSessionId: routeContext.sessionId,
+    uploadedRunId: routeContext.uploadedRunId,
+    driveFileId: routeContext.driveFileId,
+  }), [isUploadedContext, project?.id, routeContext]);
+
+  // For uploaded context, create safe registry project from evidence snapshot
+  const registryProject = isUploadedContext
+    ? createUploadedEvidenceRegistryProject(evidenceSnapshot)
+    : getRegistryProject(project!.id);
+
+  // Use registryProject._raw as the source of truth for project data
+  const currentProject = registryProject._raw;
+
   const runId = searchParams.get('run');
   const entryId = searchParams.get('entry');
   const experimentId = searchParams.get('experiment');
@@ -744,22 +793,21 @@ function NotebookLabContent() {
   );
   const [feedback, setFeedback] = useState('');
   const [approvalAction, setApprovalAction] = useState<ApprovalActionPreview | null>(null);
-  const evidenceSnapshot = useMemo(() => getProjectEvidenceSnapshot(project.id, {
-    source: searchParams.get('source'),
-    analysisSessionId: searchParams.get('sessionId') ?? searchParams.get('analysisId'),
-    uploadedRunId: searchParams.get('upload') ?? searchParams.get('uploadedRunId'),
-    driveFileId: searchParams.get('driveFileId') ?? searchParams.get('driveImportId'),
-  }), [project.id, feedback, searchParams]);
 
-  // Bundle gating: only create bundle when appropriate
+  // Bundle gating: only create bundle when appropriate (not for uploaded evidence)
   const evidenceBundle = useMemo(() => {
-    const techniqueCount = evidenceSnapshot.availableTechniques.length;
+    if (isUploadedContext) {
+      return null;
+    }
+
+    const availableTechniques = evidenceSnapshot.availableTechniques ?? [];
+    const techniqueCount = availableTechniques.length;
     const context: import('../runtime/evidenceBundle').BundleCreationContext = {
       route: '/notebook',
       techniqueCount,
       hasMultiTechIntent: techniqueCount >= 2 || searchParams.get('bundle') === 'mixed',
       isDemoProject: evidenceSnapshot.sourceMode === 'demo_preloaded',
-      hasDemoPreloadedBundle: project.id === 'cu-fe2o4-spinel' && techniqueCount >= 2,
+      hasDemoPreloadedBundle: currentProject.id === 'cu-fe2o4-spinel' && techniqueCount >= 2,
       userAction: 'send_to_notebook',
     };
 
@@ -774,7 +822,7 @@ function NotebookLabContent() {
       lifecycleState: 'sent_to_notebook',
       creationReason: 'notebook_report_handoff',
     });
-  }, [evidenceSnapshot, searchParams, project.id]);
+  }, [evidenceSnapshot, searchParams, currentProject.id]);
 
   const bundleTechniqueCoverage = useMemo(
     () => evidenceBundle ? getTechniqueCoverageFromBundle(evidenceBundle) : [],
@@ -783,7 +831,7 @@ function NotebookLabContent() {
   const [experimentModalOpen, setExperimentModalOpen] = useState(false);
   const [isProjectRailCollapsed, setIsProjectRailCollapsed] = useState(false);
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>(() => [searchParams.get('project') ?? 'cu-fe2o4-spinel']);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(() => searchParams.get('project') ?? project.id);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(() => searchParams.get('project') ?? currentProject.id);
   const [selectedExperimentId, setSelectedExperimentId] = useState<string | null>(() => searchParams.get('experiment'));
   const [activeNotebookTab, setActiveNotebookTab] = useState<ActiveNotebookTab>('Objective / Context');
   const [selectedEvidenceTechnique, setSelectedEvidenceTechnique] = useState<Technique>(() => evidenceSnapshot.primaryTechnique);
@@ -816,39 +864,40 @@ function NotebookLabContent() {
 
   // Read workspace parameters for the current project
   const workspaceParameters = useMemo(
-    () => readProjectWorkspaceParameters(project.id, getProjectTechniques(project)),
-    [project.id],
+    () => readProjectWorkspaceParameters(currentProject.id, getProjectTechniques(currentProject)),
+    [currentProject.id],
   );
 
   useEffect(() => {
-    const selectableTechniques = evidenceSnapshot.availableTechniques.length
-      ? evidenceSnapshot.availableTechniques
+    const availableTechniques = evidenceSnapshot.availableTechniques ?? [];
+    const selectableTechniques = availableTechniques.length
+      ? availableTechniques
       : [evidenceSnapshot.primaryTechnique];
     if (!selectableTechniques.includes(selectedEvidenceTechnique)) {
       setSelectedEvidenceTechnique(selectableTechniques[0] ?? evidenceSnapshot.primaryTechnique);
     }
-  }, [project.id, evidenceSnapshot.availableTechniques, evidenceSnapshot.primaryTechnique, selectedEvidenceTechnique]);
-  const runResult = useMemo(() => loadAgentRunResult(project.id), [project.id]);
+  }, [currentProject.id, evidenceSnapshot.availableTechniques, evidenceSnapshot.primaryTechnique, selectedEvidenceTechnique]);
+  const runResult = useMemo(() => loadAgentRunResult(currentProject.id), [currentProject.id]);
   const workspaceRun = useMemo(() => getProcessingRun(runId), [runId]);
   const workspaceDataset = useMemo(
     () => (workspaceRun ? getDataset(workspaceRun.datasetId) : null),
     [workspaceRun],
   );
   const availableRuns = useMemo(
-    () => getProcessingRuns().filter((run) => run.projectId === project.id),
-    [project.id, feedback],
+    () => getProcessingRuns().filter((run) => run.projectId === currentProject.id),
+    [currentProject.id, feedback],
   );
   const selectedExperiment = useMemo(() => {
-    const projectExperiments = localExperiments.filter((experiment) => experiment.projectId === project.id);
+    const projectExperiments = localExperiments.filter((experiment) => experiment.projectId === currentProject.id);
     return (
       projectExperiments.find((experiment) => experiment.id === experimentId) ??
       [...projectExperiments].reverse().find((experiment) => experiment.conditionLock) ??
       null
     );
-  }, [experimentId, localExperiments, project.id]);
-  const experimentConditionLock = selectedExperiment?.conditionLock ?? getExperimentConditionLock(project.id, experimentId);
+  }, [experimentId, localExperiments, currentProject.id]);
+  const experimentConditionLock = selectedExperiment?.conditionLock ?? getExperimentConditionLock(currentProject.id, experimentId);
   const experimentConditionLines = getConditionLockSectionLines(experimentConditionLock);
-  const experimentConditionBoundaryNotes = getConditionBoundaryNotes(experimentConditionLock, project.techniques);
+  const experimentConditionBoundaryNotes = getConditionBoundaryNotes(experimentConditionLock, currentProject.techniques);
   const experimentConditionStatus = getConditionLockStatusLabel(experimentConditionLock);
   const attachedRunRecord = useMemo(() => getProcessingRun(attachedRun), [attachedRun]);
   const selectableExportTechniques = evidenceSnapshot.availableTechniques.length
@@ -859,35 +908,35 @@ function NotebookLabContent() {
     : selectableExportTechniques[0] ?? evidenceSnapshot.primaryTechnique;
   const selectedEvidenceDataset = useMemo(
     () =>
-      getProjectDatasets(project.id).find((dataset) => dataset.technique === selectedTechniqueForExport) ??
+      getProjectDatasets(currentProject.id).find((dataset) => dataset.technique === selectedTechniqueForExport) ??
       (evidenceSnapshot.activeDataset?.technique === selectedTechniqueForExport ? evidenceSnapshot.activeDataset : null),
-    [project.id, selectedTechniqueForExport, evidenceSnapshot.activeDataset],
+    [currentProject.id, selectedTechniqueForExport, evidenceSnapshot.activeDataset],
   );
   const hasUploadedEvidenceSnapshot = evidenceSnapshot.sourceMode === 'user_uploaded';
   const hasMatchedNotebookData = hasUploadedEvidenceSnapshot
     ? evidenceSnapshot.evidenceEntries.length > 0
-    : hasMatchedXrdDemoData(project.id);
-  const projectNotebookContent = getProjectNotebookContent(project.id);
+    : hasMatchedXrdDemoData(currentProject.id);
+  const projectNotebookContent = getProjectNotebookContent(currentProject.id);
   const notebookTemplate = NOTEBOOK_TEMPLATES[templateMode];
   const workflowProcessingResult = useMemo(
-    () => evidenceSnapshot.reportContext ?? getLatestProcessingResult(project.id) ?? createProcessingResultFromXrdDemo(project.id, workspaceParameters),
-    [project.id, feedback, evidenceSnapshot.reportContext, workspaceParameters],
+    () => evidenceSnapshot.reportContext ?? getLatestProcessingResult(currentProject.id) ?? createProcessingResultFromXrdDemo(currentProject.id, workspaceParameters),
+    [currentProject.id, feedback, evidenceSnapshot.reportContext, workspaceParameters],
   );
   const workflowRefinement = useMemo(
     () =>
-      getLatestAgentDiscussionRefinement(project.id, templateMode) ??
+      getLatestAgentDiscussionRefinement(currentProject.id, templateMode) ??
       refineDiscussionFromProcessing(workflowProcessingResult, templateMode),
-    [project.id, templateMode, workflowProcessingResult, feedback],
+    [currentProject.id, templateMode, workflowProcessingResult, feedback],
   );
   const workflowNotebookEntry = useMemo(() => {
     const entryFromRoute = getNotebookEntry(entryId);
     if (entryFromRoute?.templateMode === templateMode) return entryFromRoute;
     return (
       (evidenceSnapshot.notebookContext?.templateMode === templateMode ? evidenceSnapshot.notebookContext : null) ??
-      getLatestNotebookEntry(project.id, templateMode) ??
+      getLatestNotebookEntry(currentProject.id, templateMode) ??
       createNotebookEntryFromRefinement(workflowRefinement, templateMode)
     );
-  }, [entryId, project.id, templateMode, workflowRefinement, feedback, evidenceSnapshot.notebookContext]);
+  }, [entryId, currentProject.id, templateMode, workflowRefinement, feedback, evidenceSnapshot.notebookContext]);
   const workflowReportSection = useMemo(
     () => createReportSectionFromNotebookEntry(workflowNotebookEntry),
     [workflowNotebookEntry],
@@ -915,11 +964,11 @@ function NotebookLabContent() {
     // If we have an agent run, use that data
     if (agentRun) {
       return {
-        title: `Characterization Run: ${project.name}`,
+        title: `Characterization Run: ${currentProject.name}`,
         summary: agentRun.outputs.interpretation,
         decision: agentRun.outputs.phase,
-        claimStatus: project.claimStatus,
-        validationState: project.validationState,
+        claimStatus: currentProject.claimStatus,
+        validationState: currentProject.validationState,
         evidence: agentRun.outputs.evidence,
         warnings: agentRun.outputs.caveats,
         recommendations: agentRun.outputs.recommendations,
@@ -934,22 +983,22 @@ function NotebookLabContent() {
       };
     }
 
-    const base = generateNotebookSections(project, runResult);
+    const base = generateNotebookSections(currentProject, runResult);
     if (!workspaceRun) return base;
 
-    const claimStatus = workspaceRun.matchResult?.claimStatus ?? project.claimStatus;
+    const claimStatus = workspaceRun.matchResult?.claimStatus ?? currentProject.claimStatus;
 
     return {
       ...base,
       summary: `${workspaceRun.technique} workspace run generated from ${workspaceDataset?.fileName ?? 'selected dataset'} with ${workspaceRun.detectedFeatures.length} detected features and traceable processing parameters.`,
-      decision: workspaceRun.matchResult?.phase ?? `${workspaceRun.technique} evidence saved for ${project.name}`,
+      decision: workspaceRun.matchResult?.phase ?? `${workspaceRun.technique} evidence saved for ${currentProject.name}`,
       claimStatus,
-      validationState: project.validationState,
+      validationState: currentProject.validationState,
       evidence: workspaceRun.evidence.map((item) => item.claim),
       warnings: workspaceRun.matchResult?.missingPeaks.length
         ? [`Missing or weak references: ${workspaceRun.matchResult.missingPeaks.join(', ')}.`]
         : [],
-      recommendations: project.recommendations,
+      recommendations: currentProject.recommendations,
       processingPipeline: [
         `Dataset: ${workspaceDataset?.fileName ?? workspaceRun.datasetId}.`,
         `Technique: ${workspaceRun.technique}.`,
@@ -996,12 +1045,7 @@ function NotebookLabContent() {
   };
 
   const confidenceLabel = claimStatusLabel(registryProject.claimStatus);
-  const uploadedRouteParams = new URLSearchParams();
-  ['source', 'bundle', 'sessionId', 'analysisId', 'upload', 'uploadedRunId', 'driveFileId', 'driveImportId'].forEach((key) => {
-    const value = searchParams.get(key);
-    if (value) uploadedRouteParams.set(key, value);
-  });
-  const uploadedRouteSuffix = uploadedRouteParams.toString() ? `&${uploadedRouteParams.toString()}` : '';
+  const uploadedRouteSearch = isUploadedContext ? buildEvidenceRouteSearch(routeContext) : '';
   const withDemoMode = (path: string) => path.includes('?') ? `${path}&mode=demo` : `${path}?mode=demo`;
   const snapshotDiscussionLine = hasUploadedEvidenceSnapshot
     ? `${getSnapshotEvidenceLine(evidenceSnapshot)} ${getSnapshotClaimBoundaryLines(evidenceSnapshot)[0] ?? 'Uploaded evidence remains validation-limited.'}`
@@ -1009,7 +1053,7 @@ function NotebookLabContent() {
 
   const evidenceTraceItems = [
     ...evidenceSnapshot.availableTechniques.map((technique) => {
-      const item = project.techniqueMetadata.find((metadata) => metadata.key === technique);
+      const item = currentProject.techniqueMetadata.find((metadata) => metadata.key === technique);
       const entry = evidenceSnapshot.evidenceEntries.find((candidate) => candidate.technique === technique);
       return {
         technique,
@@ -1044,7 +1088,7 @@ function NotebookLabContent() {
       destinationLabel,
       evidenceSnapshot,
       runtimeContext,
-      evidenceBundle,
+      evidenceBundle: evidenceBundle ?? undefined,
       riskLevel,
     });
     appendApprovalLedgerEntry(createApprovalLedgerEntry(action, 'preview_opened'));
@@ -1064,7 +1108,7 @@ function NotebookLabContent() {
       destinationLabel,
       evidenceSnapshot,
       runtimeContext,
-      evidenceBundle,
+      evidenceBundle: evidenceBundle ?? undefined,
       riskLevel,
     });
     appendApprovalLedgerEntry(createApprovalLedgerEntry(action, 'local_preview_continued', {
@@ -1083,7 +1127,9 @@ function NotebookLabContent() {
   };
 
   const copyShareLink = async () => {
-    const url = `${window.location.origin}/notebook?project=${project.id}&mode=demo&template=${templateMode}&entry=${workflowNotebookEntry.id}${workspaceRun ? `&run=${workspaceRun.id}` : ''}${uploadedRouteSuffix}`;
+    const url = isUploadedContext && uploadedRouteSearch
+      ? `${window.location.origin}/notebook?${uploadedRouteSearch}&template=${templateMode}`
+      : `${window.location.origin}/notebook?project=${currentProject.id}&mode=demo&template=${templateMode}&entry=${workflowNotebookEntry.id}${workspaceRun ? `&run=${workspaceRun.id}` : ''}`;
     try {
       await navigator.clipboard.writeText(url);
       showFeedback('Share link copied');
@@ -1093,7 +1139,7 @@ function NotebookLabContent() {
   };
 
   const exportMarkdown = () => {
-    const lockedContext = getLockedContext(project.id);
+    const lockedContext = getLockedContext(currentProject.id);
     const evidenceMarkdown = keyEvidenceItems.map((item) => `- ${item}`).join('\n');
     const validationMarkdown = [
       ...(evidenceSnapshot.validationGaps ?? []).map((gap) => `${gap.description} Resolution: ${gap.suggestedResolution}`),
@@ -1102,8 +1148,8 @@ function NotebookLabContent() {
     const traceMarkdown = technicalTrace.map((step, index) => `${index + 1}. ${sanitizeTraceStep(step)}`).join('\n');
     const sourceRunLines = projectNotebookContent.runLog.map(([label, value]) => `${label}: ${value}`).join('\n');
     const ledgerSummary = summarizeApprovalLedger({
-      projectId: project.id,
-      bundleId: evidenceBundle?.bundleId ?? `single-${project.id}`,
+      projectId: currentProject.id,
+      bundleId: evidenceBundle?.bundleId ?? `single-${currentProject.id}`,
       limit: 4
     });
     const approvalLedgerMarkdown = ledgerSummary.recentLines.length
@@ -1145,7 +1191,7 @@ Completeness: ${evidenceBundle.evidenceCompletenessScore}%
       : '';
 
     const availableTechniques = (registryProject?.techniques.filter(t => t.available).map(t => t.id as TechniqueWorkspaceId) ?? []);
-    const parameterProvenanceMarkdown = generateParameterProvenanceMarkdown(project.id, availableTechniques);
+    const parameterProvenanceMarkdown = generateParameterProvenanceMarkdown(currentProject.id, availableTechniques);
 
     const markdown = `# DIFARYX Notebook Memory
 
@@ -1196,7 +1242,7 @@ ${approvalLedgerMarkdown}
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `DIFARYX_${project.id}_Notebook_Memory.md`;
+    a.download = `DIFARYX_${currentProject.id}_Notebook_Memory.md`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1230,7 +1276,7 @@ ${approvalLedgerMarkdown}
     }
     if (format === 'png') {
       exportDemoArtifact('png', {
-        filenameBase: `DIFARYX_${project.id}_Notebook_Memory`,
+        filenameBase: `DIFARYX_${currentProject.id}_Notebook_Memory`,
         title: 'DIFARYX Notebook Memory',
         sections: [
           { heading: 'Experiment', lines: [projectNotebookContent.experimentTitle] },
@@ -1263,10 +1309,10 @@ ${approvalLedgerMarkdown}
     }
 
     const exportedAt = new Date().toISOString();
-    const projectSlug = toCsvSlug(project.id);
+    const projectSlug = toCsvSlug(currentProject.id);
 
     if (kind === 'summary') {
-      const rows = buildNotebookSummaryRows(project, registryProject, workflowNotebookEntry.id, exportedAt);
+      const rows = buildNotebookSummaryRows(currentProject, registryProject, workflowNotebookEntry.id, exportedAt);
       downloadNotebookCsv(`difaryx_${projectSlug}_notebook-evidence-summary.csv`, rows);
       logLocalNotebookAction('report_export', 'Evidence summary CSV export', 'Notebook evidence CSV local export preview', 'medium');
       showFeedback('Notebook evidence summary CSV exported.');
@@ -1279,7 +1325,7 @@ ${approvalLedgerMarkdown}
     }
 
     if (kind === 'raw') {
-      const rawRows = buildRawSignalRows(project, registryProject, selectedEvidenceDataset, workflowNotebookEntry.id, exportedAt);
+      const rawRows = buildRawSignalRows(currentProject, registryProject, selectedEvidenceDataset, workflowNotebookEntry.id, exportedAt);
       if (rawRows.length > 0) {
         downloadNotebookCsv(
           `difaryx_${projectSlug}_${selectedEvidenceDataset.technique.toLowerCase()}_raw-data.csv`,
@@ -1289,7 +1335,7 @@ ${approvalLedgerMarkdown}
         showFeedback('Raw signal CSV exported.');
         return;
       }
-      const featureRows = buildFeatureRows(project, registryProject, selectedEvidenceDataset, workflowNotebookEntry.id, exportedAt);
+      const featureRows = buildFeatureRows(currentProject, registryProject, selectedEvidenceDataset, workflowNotebookEntry.id, exportedAt);
       downloadNotebookCsv(
         `difaryx_${projectSlug}_${selectedEvidenceDataset.technique.toLowerCase()}_features.csv`,
         featureRows,
@@ -1299,7 +1345,7 @@ ${approvalLedgerMarkdown}
       return;
     }
 
-    const featureRows = buildFeatureRows(project, registryProject, selectedEvidenceDataset, workflowNotebookEntry.id, exportedAt);
+    const featureRows = buildFeatureRows(currentProject, registryProject, selectedEvidenceDataset, workflowNotebookEntry.id, exportedAt);
     downloadNotebookCsv(
       `difaryx_${projectSlug}_${selectedEvidenceDataset.technique.toLowerCase()}_features.csv`,
       featureRows,
@@ -1314,7 +1360,7 @@ ${approvalLedgerMarkdown}
   };
 
   const addObservation = () => {
-    const text = observationDraft.trim() || `${project.name} evidence reviewed in notebook.`;
+    const text = observationDraft.trim() || `${currentProject.name} evidence reviewed in notebook.`;
     const nextObservation = `Added observation ${observations.length + 1}: ${text}`;
     setObservations((current) => [nextObservation, ...current]);
     setObservationDraft('');
@@ -1401,7 +1447,7 @@ ${approvalLedgerMarkdown}
             {demoProjects.map((item) => {
               const itemHasMatchedData = hasMatchedXrdDemoData(item.id);
               const isExpanded = expandedProjectIds.includes(item.id);
-              const isActiveProject = !activeWizardNotebook && item.id === project.id;
+              const isActiveProject = !activeWizardNotebook && item.id === currentProject.id;
               const projectExperiments = localExperiments.filter((experiment) => experiment.projectId === item.id);
 
               return (
@@ -1477,7 +1523,6 @@ ${approvalLedgerMarkdown}
               <div className="mb-6">
                 <div className="flex items-center gap-2 text-[11px] text-text-muted mb-2">
                   <span>{getNotebookTypeBadge(activeWizardNotebook.mode)}</span>
-                  <span>{activeWizardNotebook.projectId}</span>
                   <span>{activeWizardNotebook.workflowStatus ?? 'setup_ready'}</span>
                   <span>{activeWizardNotebook.createdDate || 'Draft'}</span>
                   <span className={activeWizardNotebook.workflowStatus === 'evidence_ready' ? 'text-primary font-semibold' : 'text-amber-600 font-semibold'}>
@@ -1678,7 +1723,9 @@ ${approvalLedgerMarkdown}
                     )}
                     <Button variant="primary" size="sm" disabled={!hasMatchedNotebookData} title={!hasMatchedNotebookData ? 'Requires matched processing result before saving.' : undefined} className="h-7 gap-1.5 px-2 text-xs" onClick={saveWorkflowNotebookEntry}><Save size={12} /> Save Entry</Button>
                     <Link
-                      to={`/reports?project=${project.id}&mode=demo&template=${templateMode}&entry=${workflowNotebookEntry.id}${uploadedRouteSuffix}`}
+                      to={isUploadedContext && uploadedRouteSearch
+                        ? `/report?${uploadedRouteSearch}&template=xrd-summary`
+                        : `/reports?project=${currentProject.id}&mode=demo&template=${templateMode}&entry=${workflowNotebookEntry.id}`}
                       onClick={handleReportHandoffClick}
                       className="inline-flex h-7 items-center rounded-md border border-primary/30 bg-primary/5 px-2 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors"
                     >
@@ -1740,7 +1787,7 @@ ${approvalLedgerMarkdown}
                         <span className="font-semibold text-slate-600">Runtime source:</span>
                         <span className="ml-2 text-slate-700">{getRuntimeBadgeLabel(runtimeContext)}</span>
                       </div>
-                      {getLockedContext(project.id) && (
+                      {getLockedContext(currentProject.id) && (
                         <div className="col-span-2">
                           <span className="font-semibold text-slate-600">Context:</span>
                           <span className="ml-2 text-amber-700">Locked context preserved</span>
@@ -1753,7 +1800,7 @@ ${approvalLedgerMarkdown}
                 {/* Audit Trail Drawer */}
                 {auditTrailOpen && evidenceBundle && (
                   <div className="border-t border-border bg-slate-50 px-4 py-3 mt-2">
-                    <ApprovalLedgerPanel projectId={project.id} bundleId={evidenceBundle.bundleId} limit={10} compact={false} />
+                    <ApprovalLedgerPanel projectId={currentProject.id} bundleId={evidenceBundle.bundleId} limit={10} compact={false} />
                   </div>
                 )}
 
@@ -1847,11 +1894,11 @@ ${approvalLedgerMarkdown}
             })()}
 
             {activeNotebookTab === 'Objective / Context' && (() => {
-              const lockedContext = getLockedContext(project.id);
+              const lockedContext = getLockedContext(currentProject.id);
               const characterizationGoal = hasMatchedNotebookData
                 ? evidenceSnapshot.supportedAssignment
                 : `Establish a matched processing result for ${evidenceSnapshot.projectName} before characterization goal is defined.`;
-              const topDecision = project.nextDecisions[0];
+              const topDecision = currentProject.nextDecisions[0];
               const decisionQuestion = topDecision
                 ? topDecision.description || topDecision.label
                 : hasMatchedNotebookData
@@ -1871,7 +1918,7 @@ ${approvalLedgerMarkdown}
                 <div className="rounded-md border border-border bg-surface px-3 py-2.5 space-y-2">
                   <div>
                     <div className="text-[10px] font-semibold uppercase tracking-wider text-text-dim">Research Objective</div>
-                    <div className="mt-1 text-sm leading-snug text-text-main">{project.objective}</div>
+                    <div className="mt-1 text-sm leading-snug text-text-main">{currentProject.objective}</div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -2062,7 +2109,9 @@ ${approvalLedgerMarkdown}
                         <Download size={12} /> Export Evidence Summary CSV
                       </Button>
                       <Link
-                        to={`/reports?project=${project.id}&mode=demo&template=${templateMode}&entry=${workflowNotebookEntry.id}${uploadedRouteSuffix}`}
+                        to={isUploadedContext && uploadedRouteSearch
+                          ? `/report?${uploadedRouteSearch}&template=xrd-summary`
+                          : `/reports?project=${currentProject.id}&mode=demo&template=${templateMode}&entry=${workflowNotebookEntry.id}`}
                         onClick={handleReportHandoffClick}
                         className="inline-flex h-7 items-center rounded-md border border-primary/30 bg-primary/5 px-2 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors"
                       >
@@ -2279,7 +2328,7 @@ ${approvalLedgerMarkdown}
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs text-text-muted">No evidence linked for {project.name} yet.</p>
+                    <p className="text-xs text-text-muted">No evidence linked for {currentProject.name} yet.</p>
                   )}
                 </div>
                 <div className="rounded-md border border-border bg-surface px-3 py-2">
@@ -2301,7 +2350,7 @@ ${approvalLedgerMarkdown}
                 <div className="rounded-md border border-border bg-surface px-3 py-2">
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-text-dim">Publication Limitations</div>
                   <p className="mt-0.5 text-sm text-text-main">Claim status: <span className="font-semibold">{confidenceLabel}</span></p>
-                  <p className="text-xs leading-snug text-text-muted">Memory state: {hasMatchedNotebookData ? 'Ready to hand off to the Evidence-to-Report builder; publication-level claims remain validation-limited until open gaps are closed.' : `Publication not available for ${project.name} until matched evidence is linked.`}</p>
+                  <p className="text-xs leading-snug text-text-muted">Memory state: {hasMatchedNotebookData ? 'Ready to hand off to the Evidence-to-Report builder; publication-level claims remain validation-limited until open gaps are closed.' : `Publication not available for ${currentProject.name} until matched evidence is linked.`}</p>
                 </div>
               </div>
             )}
@@ -2348,7 +2397,7 @@ ${approvalLedgerMarkdown}
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-text-dim mb-1">Candidate Decisions</div>
                   <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                    {project.nextDecisions.map((decision) => (
+                    {currentProject.nextDecisions.map((decision) => (
                       <div key={decision.id} className="rounded-md border border-border bg-surface px-2.5 py-1.5">
                         <div className="flex items-center justify-between gap-2">
                           <div className="text-sm font-bold text-text-main">{decision.label}</div>
@@ -2420,7 +2469,7 @@ ${approvalLedgerMarkdown}
                 <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-text-muted">Characterization Overview</div>
                 {hasMatchedNotebookData ? (
                   <div className="max-h-[288px] overflow-y-auto rounded-xl">
-                    <AIInsightPanel result={getProjectInsight(project)} />
+                    <AIInsightPanel result={getProjectInsight(currentProject)} />
                   </div>
                 ) : (
                   <Card className="p-4">
@@ -2732,7 +2781,7 @@ ${approvalLedgerMarkdown}
                 <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                   <div>
                     <h3 className="text-base font-bold text-text-main">Source Workflow</h3>
-                    <p className="mt-2 text-sm text-text-muted">Project: {project.name}</p>
+                    <p className="mt-2 text-sm text-text-muted">Project: {currentProject.name}</p>
                     <p className="mt-1 text-sm text-text-main">
                   Demo notebook entry generated from the current interpretation context.
                     </p>
@@ -2815,7 +2864,7 @@ ${approvalLedgerMarkdown}
                 {(() => {
                   const availableTechniques = (registryProject?.techniques.filter(t => t.available).map(t => t.id as TechniqueWorkspaceId) ?? []);
                   const parameterSummaries = availableTechniques.map(technique =>
-                    getParameterProvenanceSummary(project.id, technique)
+                    getParameterProvenanceSummary(currentProject.id, technique)
                   ).filter(s => s.hasOverrides);
 
                   if (parameterSummaries.length === 0) {
@@ -3045,14 +3094,14 @@ ${approvalLedgerMarkdown}
                 <div className="bg-surface p-4 rounded-md border border-border">
                   <div className="text-xs text-text-muted mb-1">Peaks Detected</div>
                   <div className="text-2xl font-bold text-primary">
-                    {hasMatchedNotebookData ? workspaceRun?.detectedFeatures.length ?? project.xrdPeaks.length : 0}
+                    {hasMatchedNotebookData ? workspaceRun?.detectedFeatures.length ?? currentProject.xrdPeaks.length : 0}
                   </div>
                 </div>
                 <div className="bg-surface p-4 rounded-md border border-border">
                   <div className="text-xs text-text-muted mb-1">Peak Positions</div>
                   <div className="text-sm font-mono text-text-main">
                     {hasMatchedNotebookData
-                      ? (workspaceRun?.detectedFeatures ?? project.xrdPeaks).map((peak) => `${peak.position.toFixed(1)} ${workspaceRun && workspaceRun.technique !== 'XRD' ? '' : 'deg'}`).join(', ')
+                      ? (workspaceRun?.detectedFeatures ?? currentProject.xrdPeaks).map((peak) => `${peak.position.toFixed(1)} ${workspaceRun && workspaceRun.technique !== 'XRD' ? '' : 'deg'}`).join(', ')
                       : 'No matched dataset'}
                   </div>
                 </div>
@@ -3068,7 +3117,7 @@ ${approvalLedgerMarkdown}
               </h3>
               <div className="bg-surface p-4 rounded-md border border-border flex items-center justify-between">
                 <div>
-                  <div className="text-lg font-bold">{hasMatchedNotebookData ? projectNotebookContent.phaseLabel : project.name}</div>
+                  <div className="text-lg font-bold">{hasMatchedNotebookData ? projectNotebookContent.phaseLabel : currentProject.name}</div>
                   <div className="text-xs text-text-muted mt-1">
                     {hasMatchedNotebookData
                       ? notebook.phaseInterpretation
@@ -3099,11 +3148,11 @@ ${approvalLedgerMarkdown}
             </section>
 
             <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Link to={withDemoMode(workspaceRun ? getWorkspaceRoute(project, workspaceRun.technique, workspaceRun.datasetId) : getWorkspaceRoute(project))} className="rounded-md border border-border bg-surface p-3 text-sm font-semibold text-text-main hover:border-primary/40 transition-colors">
+              <Link to={withDemoMode(workspaceRun ? getWorkspaceRoute(currentProject, workspaceRun.technique, workspaceRun.datasetId) : getWorkspaceRoute(currentProject))} className="rounded-md border border-border bg-surface p-3 text-sm font-semibold text-text-main hover:border-primary/40 transition-colors">
                 {workspaceRun ? `Open ${workspaceRun.technique} Analysis` : 'Open Workspace'} <ArrowRight size={14} className="inline ml-1" />
               </Link>
               <Link
-                to={withDemoMode(hasMatchedNotebookData ? getAgentPath(project) : getWorkspaceRoute(project))}
+                to={withDemoMode(hasMatchedNotebookData ? getAgentPath(currentProject) : getWorkspaceRoute(currentProject))}
                 className="rounded-md border border-cyan/40 bg-surface p-3 text-sm font-semibold text-cyan hover:bg-cyan/10 transition-colors"
               >
                 {hasMatchedNotebookData ? 'Open Refinement' : 'Open Workspace'} <ArrowRight size={14} className="inline ml-1" />
@@ -3129,7 +3178,7 @@ ${approvalLedgerMarkdown}
           <div className="p-6">
             <div className="mb-4 text-xs font-semibold text-text-muted uppercase tracking-wider">Characterization Overview</div>
             {hasMatchedNotebookData ? (
-              <AIInsightPanel result={getProjectInsight(project)} />
+              <AIInsightPanel result={getProjectInsight(currentProject)} />
             ) : (
               <Card className="p-4">
                 <div className="text-sm font-semibold text-text-main">Validation pending</div>
@@ -3143,7 +3192,7 @@ ${approvalLedgerMarkdown}
       </div>
       <ExperimentModal
         open={experimentModalOpen}
-        defaultProjectId={project.id}
+        defaultProjectId={currentProject.id}
         onClose={() => setExperimentModalOpen(false)}
         onCreated={() => {
           setLocalExperiments(getLocalExperiments());

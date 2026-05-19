@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Mail, UserRound } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "../components/ui/Button";
@@ -19,7 +19,20 @@ export default function SignIn() {
   const [password, setPassword] = useState("");
   const [emailError, setEmailError] = useState("");
 
-  const from = (location.state as any)?.from?.pathname || "/dashboard";
+  const routeState = location.state as
+    | { from?: Location; authError?: string }
+    | null
+    | undefined;
+  const fromLocation = routeState?.from;
+  const from = fromLocation
+    ? `${fromLocation.pathname}${fromLocation.search ?? ""}${fromLocation.hash ?? ""}`
+    : "/dashboard";
+
+  useEffect(() => {
+    if (routeState?.authError) {
+      setEmailError(routeState.authError);
+    }
+  }, [routeState?.authError]);
 
   const enterDemo = (
     profile = {
