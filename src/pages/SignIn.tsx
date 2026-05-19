@@ -4,8 +4,13 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card, CardContent } from "../components/ui/Card";
 import { useAuth } from "../contexts/AuthContext";
+import {
+  getGoogleOAuthClientId,
+  getGoogleOAuthClientIdSource,
+} from "../utils/googleOAuthConfig";
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_ID = getGoogleOAuthClientId();
+const GOOGLE_CLIENT_ID_SOURCE = getGoogleOAuthClientIdSource();
 
 export default function SignIn() {
   const navigate = useNavigate();
@@ -51,12 +56,14 @@ export default function SignIn() {
     setEmailError("");
 
     if (!GOOGLE_CLIENT_ID) {
-      console.error("[SignIn] Missing VITE_GOOGLE_CLIENT_ID");
-      setEmailError("Missing VITE_GOOGLE_CLIENT_ID in .env");
+      console.warn("[SignIn] Google OAuth client ID is not configured");
+      setEmailError(
+        "Google sign-in is not configured. Continue as Guest / Researcher or use Email."
+      );
       return;
     }
 
-    console.log("[SignIn] Client ID found:", GOOGLE_CLIENT_ID);
+    console.log("[SignIn] Google client ID configured via:", GOOGLE_CLIENT_ID_SOURCE);
 
     const redirectUri = `${window.location.origin}/auth/callback`;
     console.log("[SignIn] Redirect URI:", redirectUri);
