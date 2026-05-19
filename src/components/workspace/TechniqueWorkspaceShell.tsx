@@ -919,11 +919,12 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
           datasetId: uploadedRun.id,
           sampleName: uploadedRun.sampleIdentity,
           sourceLabel: uploadedRun.fileName,
-<<<<<<< Updated upstream
-          dataPoints: uploadedRun.points.map(p => ({ twoTheta: p.x, intensity: p.y })),
-=======
-          dataPoints: uploadedRun.points.map(p => ({ x: p.x, y: p.y })),
->>>>>>> Stashed changes
+          dataPoints: uploadedRun.points.map(p => ({
+            x: p.x,
+            y: p.y,
+            twoTheta: p.x,
+            intensity: p.y,
+          })),
         }, processingParams);
 
         // Convert detected peaks to TechniqueFeature format
@@ -932,17 +933,10 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
           technique: 'XRD' as const,
           label: `Peak at ${peak.position.toFixed(2)}°`,
           position: peak.position,
-<<<<<<< Updated upstream
-          intensity: peak.relativeIntensity,
-          relativeIntensity: peak.relativeIntensity,
-          prominence: peak.relativeIntensity,
-          context: peak.possiblePhases.join(', ') || 'Unknown phase',
-=======
           intensity: peak.intensity,
           relativeIntensity: peak.intensity,
           prominence: peak.prominence,
           context: peak.label || 'Unknown phase',
->>>>>>> Stashed changes
         }));
 
         // Update uploaded run with processing results
@@ -1017,10 +1011,6 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
           : { hasOverrides: false, overrideCount: 0, lastUpdatedBy: 'default', updatedAt: null };
 
         const result = runRamanProcessing({
-<<<<<<< Updated upstream
-          ramanShift: uploadedRun.points.map(p => p.x),
-          intensity: uploadedRun.points.map(p => p.y),
-=======
           id: uploadedRun.id,
           label: uploadedRun.fileName,
           sampleName: uploadedRun.sampleIdentity,
@@ -1031,27 +1021,17 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
           },
           baseline: [],
           peaks: [],
->>>>>>> Stashed changes
         }, processingParams);
 
         const extractedFeatures: TechniqueFeature[] = result.peaks.map((peak, index) => ({
           id: `raman-peak-${index}`,
           technique: 'Raman' as const,
-<<<<<<< Updated upstream
-          label: `Peak at ${peak.position.toFixed(1)} cm⁻¹`,
-          position: peak.position,
-          intensity: peak.intensity,
-          relativeIntensity: peak.relativeIntensity,
-          prominence: peak.relativeIntensity,
-          context: peak.assignedMode?.mode || 'Unassigned',
-=======
           label: `Peak at ${peak.ramanShift.toFixed(1)} cm⁻¹`,
           position: peak.ramanShift,
           intensity: peak.intensity,
           relativeIntensity: peak.intensity,
           prominence: peak.prominence,
           context: peak.assignment || 'Unassigned',
->>>>>>> Stashed changes
         }));
 
         const updateSuccess = updateUploadedRunProcessingResults(routeContext.uploadedRunId, {
@@ -1125,10 +1105,6 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
           : { hasOverrides: false, overrideCount: 0, lastUpdatedBy: 'default', updatedAt: null };
 
         const result = runXpsProcessing({
-<<<<<<< Updated upstream
-          bindingEnergy: uploadedRun.points.map(p => p.x),
-          intensity: uploadedRun.points.map(p => p.y),
-=======
           id: uploadedRun.id,
           label: uploadedRun.fileName,
           region: 'Survey',
@@ -1141,27 +1117,17 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
           baseline: [],
           peaks: [],
           matches: [],
->>>>>>> Stashed changes
         }, processingParams);
 
         const extractedFeatures: TechniqueFeature[] = result.peaks.map((peak, index) => ({
           id: `xps-peak-${index}`,
           technique: 'XPS' as const,
-<<<<<<< Updated upstream
-          label: `Peak at ${peak.position.toFixed(1)} eV`,
-          position: peak.position,
-          intensity: peak.intensity,
-          relativeIntensity: (peak.intensity / Math.max(...result.peaks.map(p => p.intensity))) * 100,
-          prominence: peak.intensity,
-          context: peak.assignment?.element || 'Unassigned',
-=======
           label: `Peak at ${peak.bindingEnergy.toFixed(1)} eV`,
           position: peak.bindingEnergy,
           intensity: peak.intensity,
           relativeIntensity: (peak.intensity / Math.max(...result.peaks.map(p => p.intensity))) * 100,
           prominence: peak.intensity,
           context: peak.assignment || 'Unassigned',
->>>>>>> Stashed changes
         }));
 
         const updateSuccess = updateUploadedRunProcessingResults(routeContext.uploadedRunId, {
@@ -1235,10 +1201,6 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
           : { hasOverrides: false, overrideCount: 0, lastUpdatedBy: 'default', updatedAt: null };
 
         const result = runFtirProcessing({
-<<<<<<< Updated upstream
-          wavenumber: uploadedRun.points.map(p => p.x),
-          absorbance: uploadedRun.points.map(p => p.y),
-=======
           id: uploadedRun.id,
           label: uploadedRun.fileName,
           sampleName: uploadedRun.sampleIdentity,
@@ -1250,27 +1212,17 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
           baseline: [],
           bands: [],
           matches: [],
->>>>>>> Stashed changes
         }, processingParams);
 
         const extractedFeatures: TechniqueFeature[] = result.bands.map((band, index) => ({
           id: `ftir-band-${index}`,
           technique: 'FTIR' as const,
-<<<<<<< Updated upstream
-          label: `Band at ${band.position.toFixed(0)} cm⁻¹`,
-          position: band.position,
-          intensity: band.intensity,
-          relativeIntensity: (band.intensity / Math.max(...result.bands.map(b => b.intensity))) * 100,
-          prominence: band.intensity,
-          context: band.assignment?.functionalGroup || 'Unassigned',
-=======
           label: `Band at ${band.wavenumber.toFixed(0)} cm⁻¹`,
           position: band.wavenumber,
           intensity: band.intensity,
           relativeIntensity: (band.intensity / Math.max(...result.bands.map(b => b.intensity))) * 100,
           prominence: band.intensity,
           context: band.assignment || 'Unassigned',
->>>>>>> Stashed changes
         }));
 
         const updateSuccess = updateUploadedRunProcessingResults(routeContext.uploadedRunId, {

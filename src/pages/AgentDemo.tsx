@@ -1496,42 +1496,6 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
   // For uploaded evidence, getProjectEvidenceSnapshot handles it directly
   const evidenceSnapshot = useMemo(
     () => getProjectEvidenceSnapshot(isUploadedContext ? null : agentState.projectId, {
-<<<<<<< Updated upstream
-      source: searchParams.get('source'),
-      analysisSessionId: searchParams.get('sessionId') ?? searchParams.get('analysisId'),
-      uploadedRunId: searchParams.get('upload') ?? searchParams.get('uploadedRunId'),
-      driveFileId: searchParams.get('driveFileId') ?? searchParams.get('driveImportId'),
-      runtimeMode,
-    }),
-    [isUploadedContext, agentState.projectId, runtimeMode, searchParams],
-  );
-
-  // For uploaded context, use a minimal project structure from evidenceSnapshot
-  const registryProject = isUploadedContext
-    ? {
-        id: 'uploaded-evidence-temp',
-        name: evidenceSnapshot.activeDataset?.fileName ?? 'Uploaded Evidence',
-        label: evidenceSnapshot.activeDataset?.fileName ?? 'Uploaded Evidence',
-        description: 'User-uploaded evidence session',
-        phase: 'Unknown',
-        techniques: evidenceSnapshot.availableTechniques as Technique[],
-        claimStatus: 'pending',
-        reportReadiness: 0,
-        validationGapCount: 1,
-        decisionPendingCount: 1,
-        jobType: 'research',
-        _raw: {
-          id: 'uploaded-evidence-temp',
-          name: evidenceSnapshot.activeDataset?.fileName ?? 'Uploaded Evidence',
-          phase: 'Unknown',
-          techniques: evidenceSnapshot.availableTechniques as Technique[],
-          evidence: [],
-          validationGaps: [{ description: 'Validation limited: user-uploaded evidence', severity: 'moderate' as const, urgency: 'medium' as const }],
-          nextDecisions: [{ label: 'Additional validation required', priority: 'medium' as const }],
-          evidenceSources: [],
-        },
-      } as ReturnType<typeof getRegistryProject>
-=======
       source: routeContext.source,
       analysisSessionId: routeContext.sessionId,
       uploadedRunId: routeContext.uploadedRunId,
@@ -1544,7 +1508,6 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
   // For uploaded context, create safe registry project from evidence snapshot
   const registryProject = isUploadedContext
     ? createUploadedEvidenceRegistryProject(evidenceSnapshot)
->>>>>>> Stashed changes
     : getRegistryProject(agentState.projectId);
 
   const currentProject = registryProject._raw;
@@ -1568,12 +1531,8 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
       return null;
     }
 
-<<<<<<< Updated upstream
-    const techniqueCount = evidenceSnapshot.availableTechniques.length;
-=======
     const availableTechniques = evidenceSnapshot.availableTechniques ?? [];
     const techniqueCount = availableTechniques.length;
->>>>>>> Stashed changes
     const context: import('../runtime/evidenceBundle').BundleCreationContext = {
       route: '/demo/agent',
       techniqueCount,
@@ -2483,11 +2442,7 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
           {/* Boundary Compact Chip */}
           <div className="h-7 px-2 flex items-center gap-1 bg-emerald-50 border border-emerald-200 rounded text-[10px] font-semibold text-emerald-700">
             <CheckCircle2 size={10} />
-<<<<<<< Updated upstream
-            <span>{isUploadedContext ? 'Validation limited' : (evidenceSnapshot.validationGaps.length > 0 ? 'Boundary gated' : 'Boundary ready')}</span>
-=======
             <span>{isUploadedContext ? 'Validation limited' : ((evidenceSnapshot.validationGaps?.length ?? 0) > 0 ? 'Boundary gated' : 'Boundary ready')}</span>
->>>>>>> Stashed changes
           </div>
 
           <div className="flex-1" />
