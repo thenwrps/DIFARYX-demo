@@ -85,6 +85,19 @@ export interface NotebookEntry {
   sections: Array<{ heading: string; lines: string[] }>;
   reportTemplate: ReportTemplate;
   workspaceParameters?: Record<string, Record<string, string | number | boolean | string[]>>;
+  xrdBackendEvidenceSummary?: {
+    label: string;
+    detectedPeakCount: number;
+    fittedPeakCount: number;
+    snRatio: number;
+    baselineDeviation: number;
+    peakResolution: string | null;
+    primaryPhase: string | null;
+    matchedPeakCount: number;
+    phaseSummary: string | null;
+    savedAt: string;
+    caveat: string;
+  };
 }
 
 export interface ReportSection {

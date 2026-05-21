@@ -86,6 +86,7 @@ import {
   type XRDHealthStatus,
 } from '../../services/xrdBackendClient';
 import type { XRDNormalizedResult } from '../../types/xrdBackend';
+import { saveXrdBackendEvidenceResult } from '../../data/xrdBackendEvidence';
 import { runRamanProcessing } from '../../agents/ramanAgent/runner';
 import { getRamanProcessingParams, getRamanParameterSnapshot } from '../../utils/ramanParameterAdapter';
 import { runXpsProcessing } from '../../agents/xpsAgent/runner';
@@ -724,6 +725,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
   const [xrdBackendResult, setXrdBackendResult] = useState<XRDNormalizedResult | null>(null);
   const [xrdBackendLoading, setXrdBackendLoading] = useState(false);
   const [xrdBackendError, setXrdBackendError] = useState<string | null>(null);
+  const [xrdBackendSaved, setXrdBackendSaved] = useState(false);
 
   useEffect(() => {
     if (!isXrdBackendEnabled) return;
@@ -1011,6 +1013,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
           if (isXrdBackendEnabled) {
             setXrdBackendLoading(true);
             setXrdBackendError(null);
+            setXrdBackendSaved(false);
             processXrdSignal({
               x: uploadedRun.points.map((p) => p.x),
               y: uploadedRun.points.map((p) => p.y),
@@ -1018,10 +1021,17 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
               .then((normalized) => {
                 setXrdBackendResult(normalized);
                 setXrdBackendLoading(false);
+                saveXrdBackendEvidenceResult(
+                  projectId ?? undefined,
+                  routeContext.uploadedRunId ?? undefined,
+                  normalized,
+                  uploadedRun.fileName,
+                );
+                setXrdBackendSaved(true);
                 setSessionState((prev) =>
                   addLog(
                     prev,
-                    `[backend] XRD backend processing complete — ${normalized.detectedPeakCount} peaks, S/N ${normalized.snRatio.toFixed(1)}`,
+                    `[backend] XRD backend processing complete — ${normalized.detectedPeakCount} peaks, S/N ${normalized.snRatio.toFixed(1)} (evidence saved for handoff)`,
                   ),
                 );
               })
@@ -2017,6 +2027,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
                 xrdBackendResult={xrdBackendResult}
                 xrdBackendLoading={xrdBackendLoading}
                 xrdBackendError={xrdBackendError}
+                xrdBackendSaved={xrdBackendSaved}
               />
             )}
 
@@ -2086,6 +2097,7 @@ function EvidencePanel({
   xrdBackendResult,
   xrdBackendLoading,
   xrdBackendError,
+  xrdBackendSaved,
 }: {
   config: TechniqueWorkspaceConfig;
   focusedEvidence: DemoFocusedEvidenceSource | null;
@@ -2099,6 +2111,7 @@ function EvidencePanel({
   xrdBackendResult: XRDNormalizedResult | null;
   xrdBackendLoading: boolean;
   xrdBackendError: string | null;
+  xrdBackendSaved: boolean;
 }) {
   return (
     <div className="space-y-2">
@@ -2212,6 +2225,17 @@ function EvidencePanel({
                       Phase purity requires reference validation and/or complementary evidence.
                     </p>
                   </div>
+                </Panel>
+              )}
+
+              {xrdBackendSaved && (
+                <Panel title="Evidence Handoff" icon={<CheckCircle2 size={13} />}>
+                  <p className="text-[10px] font-bold text-emerald-700">
+                    Backend evidence saved for agent handoff.
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-text-muted">
+                    Result persisted in local storage for Agent Mode, Notebook, and Report workflows.
+                  </p>
                 </Panel>
               )}
 

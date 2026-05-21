@@ -930,6 +930,7 @@ function formatReviewStatus(status: string) {
 
 import { formatChemicalFormula } from '../utils';
 import { buildAgentContext, type AgentContext, type WorkspaceParameters } from '../utils/agentContext';
+import { readLatestXrdBackendEvidenceResult, type XRDBackendEvidenceRecord } from '../data/xrdBackendEvidence';
 import {
   getProjectTechniques,
   getProjectParameterGroups,
@@ -1599,6 +1600,24 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
     },
     [agentState.context, selectedDataset, selectedProject.id],
   );
+  // Read persisted XRD backend evidence for Agent reasoning enrichment.
+  // Uses closure access so finalizeRun can consume it without signature changes.
+  const xrdBackendEvidence = useMemo<XRDBackendEvidenceRecord | null>(
+    () => {
+      if (agentState.context !== 'XRD') return null;
+
+      try {
+        return readLatestXrdBackendEvidenceResult(
+          selectedProject.id,
+          undefined,
+        );
+      } catch {
+        return null;
+      }
+    },
+    [agentState.context, selectedProject.id],
+  );
+
   const peakMarkers = useMemo(
     () =>
       agentState.context === 'XRD' && (agentState.graphState.showMarkers || agentState.reasoningState.result)
@@ -1725,6 +1744,39 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
     xrdResult: ReturnType<typeof runXrdPhaseIdentificationAgent> | null,
   ) => {
     const decision = createDecisionResult(context, option, xrdResult);
+
+    // ── Enrich with persisted XRD backend evidence (additive, non-breaking) ──
+    if (context === 'XRD' && xrdBackendEvidence) {
+      const be = xrdBackendEvidence;
+      const backendBasis = [
+        `Backend-supported XRD evidence: ${be.detectedPeakCount} peaks detected, ${be.fittedPeakCount} fitted, S/N ratio ${Number.isFinite(be.snRatio) ? be.snRatio.toFixed(1) : 'N/A'}, baseline deviation ${Number.isFinite(be.baselineDeviation) ? be.baselineDeviation.toFixed(3) : 'N/A'}`,
+        `Peak resolution: ${be.peakResolution || 'N/A'}`,
+      ];
+      if (be.isPhaseMatched && be.primaryPhase) {
+        backendBasis.push(
+          `Reference-supported phase indication: ${be.primaryPhase} (${be.matchedPeakCount} reference peaks matched)`,
+        );
+      }
+      if (be.phaseSummary) {
+        backendBasis.push(`Phase summary: ${be.phaseSummary}`);
+      }
+
+      decision.basis = [...decision.basis, ...backendBasis];
+
+      // Add bounded limitation when phase match is available
+      if (be.isPhaseMatched && be.primaryPhase) {
+        decision.limitations = [
+          ...decision.limitations,
+          'Phase purity requires reference validation and/or complementary evidence',
+        ];
+      }
+
+      // Append backend reference to decision text (non-replacing)
+      if (be.isPhaseMatched && be.primaryPhase) {
+        decision.decision = `${decision.decision} | Reference-supported phase indication: ${be.primaryPhase} (${be.matchedPeakCount} peaks matched). Phase purity requires reference validation and/or complementary evidence.`;
+      }
+    }
+
     const detectedPeaks =
       context === 'XRD'
         ? asDemoPeaks(xrdResult?.detectedPeaks.length ? xrdResult.detectedPeaks : option.dataset.detectedFeatures)
@@ -2100,14 +2152,36 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
     const refinement = refineDiscussionFromProcessing(workflowProcessingResult, templateMode);
     saveAgentDiscussionRefinement(refinement);
     const notebookEntry = createNotebookEntryFromRefinement(refinement, templateMode);
-    saveNotebookEntry(notebookEntry);
+
+    const entryToSave = xrdBackendEvidence
+      ? {
+          ...notebookEntry,
+          xrdBackendEvidenceSummary: {
+            label: 'Backend-supported XRD evidence',
+            detectedPeakCount: xrdBackendEvidence.detectedPeakCount,
+            fittedPeakCount: xrdBackendEvidence.fittedPeakCount,
+            snRatio: xrdBackendEvidence.snRatio,
+            baselineDeviation: xrdBackendEvidence.baselineDeviation,
+            peakResolution: xrdBackendEvidence.peakResolution ?? null,
+            primaryPhase: xrdBackendEvidence.primaryPhase ?? null,
+            matchedPeakCount: xrdBackendEvidence.matchedPeakCount,
+            phaseSummary: xrdBackendEvidence.phaseSummary ?? null,
+            savedAt: xrdBackendEvidence.timestamp,
+            caveat: 'Phase purity requires reference validation and/or complementary evidence.',
+          },
+        }
+      : notebookEntry;
+
+    saveNotebookEntry(entryToSave);
     logLocalAction('Notebook handoff', 'notebook_commit', 'Notebook memory handoff preview', 'low');
     appendLog({
       stamp: '[notebook]',
-      message: `Saved deterministic demo notebook entry from the current interpretation context as ${notebookEntry.templateLabel}.`,
+      message: xrdBackendEvidence
+        ? `Saved deterministic demo notebook entry from the current interpretation context as ${notebookEntry.templateLabel}. Notebook handoff includes backend XRD evidence.`
+        : `Saved deterministic demo notebook entry from the current interpretation context as ${notebookEntry.templateLabel}.`,
       type: 'success',
     });
-    navigate(`/notebook?project=${selectedProject.id}&mode=demo&entry=${notebookEntry.id}&template=${templateMode}${evidenceRouteSuffix}`);
+    navigate(`/notebook?project=${selectedProject.id}&mode=demo&entry=${entryToSave.id}&template=${templateMode}${evidenceRouteSuffix}`);
   };
 
   const handleOpenSourceProcessing = () => {
@@ -2444,6 +2518,17 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
             <CheckCircle2 size={10} />
             <span>{isUploadedContext ? 'Validation limited' : ((evidenceSnapshot.validationGaps?.length ?? 0) > 0 ? 'Boundary gated' : 'Boundary ready')}</span>
           </div>
+
+          {/* Backend XRD Evidence indicator */}
+          {xrdBackendEvidence && (
+            <div
+              className="h-7 px-2 flex items-center gap-1 bg-violet-50 border border-violet-200 rounded text-[10px] font-semibold text-violet-700"
+              title={`Backend XRD evidence: ${xrdBackendEvidence.detectedPeakCount} peaks, S/N ${Number.isFinite(xrdBackendEvidence.snRatio) ? xrdBackendEvidence.snRatio.toFixed(1) : 'N/A'}, ${xrdBackendEvidence.primaryPhase ? `phase: ${xrdBackendEvidence.primaryPhase}` : 'no phase match'}`}
+            >
+              <Database size={10} />
+              <span>Backend XRD evidence loaded</span>
+            </div>
+          )}
 
           <div className="flex-1" />
 
