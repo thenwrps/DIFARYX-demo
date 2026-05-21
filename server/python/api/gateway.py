@@ -19,6 +19,7 @@ from __future__ import annotations
 import io
 import logging
 import sys
+import time
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -291,11 +292,13 @@ async def process_xrd(request: XRDProcessRequest):
 
     try:
         # Build domain config
+        t0 = time.perf_counter()
         config = _build_config(request)
 
         # Run processor
         processor = XRDSignalProcessor(config)
         result = processor.run(request.x, request.y)
+        t_process = time.perf_counter()
 
         # Run phase matching against fitted peaks
         phase_match_result = None
@@ -304,6 +307,19 @@ async def process_xrd(request: XRDProcessRequest):
                 evidence_peaks=result.fitted_peaks,
                 db_type=config.database.reference_db,
             )
+        t_match = time.perf_counter()
+
+        n_points = len(request.x)
+        n_det = len(result.detected_peaks)
+        n_fit = len(result.fitted_peaks)
+        logger.info(
+            "XRD pipeline: %d points → %d detected, %d fitted | "
+            "process=%.3fs, match=%.3fs, total=%.3fs",
+            n_points, n_det, n_fit,
+            t_process - t0,
+            t_match - t_process,
+            t_match - t0,
+        )
 
         return _build_response(result, phase_match_result)
 
