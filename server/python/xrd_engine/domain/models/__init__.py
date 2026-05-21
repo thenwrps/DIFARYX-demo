@@ -1,0 +1,1 @@
+"""Domain models for XRD processing pipeline parameters."""

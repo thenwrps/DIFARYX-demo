@@ -1,0 +1,1 @@
+"""Domain layer: Pydantic models and type definitions for XRD processing."""
