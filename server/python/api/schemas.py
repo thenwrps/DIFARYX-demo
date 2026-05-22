@@ -243,3 +243,37 @@ class ErrorResponse(BaseModel):
     """Standard error response."""
     detail: str
     error_type: Optional[str] = None
+
+
+class ScienceSkill(BaseModel):
+    """Metadata schema representing a registered Science Skill."""
+    skill_id: str = Field(description="Unique string identifier for the skill.")
+    skill_label: str = Field(description="Display label of the skill.")
+    technique: str = Field(description="Associated experimental technique.")
+    description: str = Field(description="Summary of the skill's purpose.")
+    inputs: str = Field(description="Description of expected inputs.")
+    outputs: str = Field(description="Description of generated outputs.")
+    status: str = Field(description="Current status: active or inactive.")
+
+
+class ScientificEvidenceObject(BaseModel):
+    """Structured container representing skill-derived scientific evidence."""
+    evidence_id: str = Field(description="UUIDv4 identifier for the evidence snapshot.")
+    schema_version: str = Field(default="1.0.0", description="Schema version identifier.")
+    skill_id: str = Field(description="ID of the executing skill.")
+    skill_label: str = Field(description="Label of the executing skill.")
+    technique: str = Field(description="Associated technique.")
+    input_reference: str = Field(description="SHA-256 hash representation of the input dataset.")
+    processing_summary: str = Field(description="Summary of active processing parameters.")
+    scientific_observations: List[str] = Field(default_factory=list, description="List of peak details and phase indications.")
+    claim_boundaries: List[str] = Field(default_factory=list, description="Validation constraints and limitations.")
+    validation_gaps: List[str] = Field(default_factory=list, description="Open validation gaps or next steps.")
+    agent_ready_summary: str = Field(description="LLM-optimized summary of findings.")
+    raw_result: Dict[str, Any] = Field(description="JSON-safe dictionary of raw processor outputs.")
+    created_at: str = Field(description="ISO UTC timestamp of creation.")
+
+
+class XRDSkillProcessResponse(BaseModel):
+    """Response model for the XRD Science Skill processing endpoint."""
+    legacy_result: XRDProcessResponse = Field(description="Legacy XRD processor output.")
+    evidence_object: ScientificEvidenceObject = Field(description="Validation-bounded scientific evidence object.")

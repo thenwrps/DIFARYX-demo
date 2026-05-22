@@ -20,7 +20,9 @@ Run:
 
 import json
 import math
+import re
 import sys
+import uuid
 
 from fastapi.testclient import TestClient
 
@@ -294,6 +296,113 @@ def test_health_endpoint():
                  f"status='{data.get('status')}'")
 
 
+def test_scientific_skills_layer():
+    print("\n═══ Test 3: Scientific Skills Layer ═══")
+
+    # 1. GET /skills
+    resp = client.get("/skills")
+    log_test("GET /skills returns 200", resp.status_code == 200, f"status={resp.status_code}")
+    if resp.status_code == 200:
+        skills = resp.json()
+        log_test("GET /skills returns 7 skills", len(skills) == 7, f"count={len(skills)}")
+        if skills:
+            expected_keys = {"skill_id", "skill_label", "technique", "description", "inputs", "outputs", "status"}
+            keys_ok = all(expected_keys.issubset(skill.keys()) for skill in skills)
+            log_test("All skills have required keys", keys_ok)
+
+    # 2. GET /skills/xrd and GET /skills/xrd-science-skill
+    resp_xrd = client.get("/skills/xrd")
+    log_test("GET /skills/xrd returns 200", resp_xrd.status_code == 200, f"status={resp_xrd.status_code}")
+    if resp_xrd.status_code == 200:
+        skill = resp_xrd.json()
+        log_test("GET /skills/xrd matches xrd-science-skill", skill.get("skill_id") == "xrd-science-skill")
+
+    resp_full_id = client.get("/skills/xrd-science-skill")
+    log_test("GET /skills/xrd-science-skill returns 200", resp_full_id.status_code == 200, f"status={resp_full_id.status_code}")
+    if resp_full_id.status_code == 200:
+        skill = resp_full_id.json()
+        log_test("GET /skills/xrd-science-skill matches technique XRD", skill.get("technique") == "XRD")
+
+    # 3. GET unknown skill returns 404
+    resp_unknown = client.get("/skills/unknown-skill-12345")
+    log_test("GET /skills/unknown-skill returns 404", resp_unknown.status_code == 404, f"status={resp_unknown.status_code}")
+
+    # 4. POST /skills/xrd/process
+    x, y = generate_cofe2o4_xrd_pattern()
+    payload = {
+        "x": x,
+        "y": y,
+        "theta_min": 10.0,
+        "theta_max": 80.0,
+        "peak_threshold": 0.10,
+        "min_prominence": 0.05,
+    }
+    resp_process = client.post("/skills/xrd/process", json=payload)
+    log_test("POST /skills/xrd/process returns 200", resp_process.status_code == 200, f"status={resp_process.status_code}")
+
+    if resp_process.status_code == 200:
+        data = resp_process.json()
+        log_test("Response has 'legacy_result'", "legacy_result" in data)
+        log_test("Response has 'evidence_object'", "evidence_object" in data)
+
+        evidence = data.get("evidence_object", {})
+
+        # UUIDv4 evidence_id
+        ev_id = evidence.get("evidence_id")
+        is_uuid4 = False
+        try:
+            uuid.UUID(ev_id, version=4)
+            is_uuid4 = True
+        except ValueError:
+            pass
+        log_test("evidence_id is a valid UUIDv4", is_uuid4, f"value={ev_id}")
+
+        # ISO UTC created_at
+        created_at = evidence.get("created_at", "")
+        # Matches typical UTC format ending with Z: YYYY-MM-DDTHH:MM:SSZ
+        is_iso_utc = created_at.endswith("Z") and ("T" in created_at)
+        log_test("created_at is ISO UTC format", is_iso_utc, f"value={created_at}")
+
+        # SHA-256 input_reference
+        input_ref = evidence.get("input_reference", "")
+        is_sha256 = bool(re.match(r"^[0-9a-fA-F]{64}$", input_ref))
+        log_test("input_reference is a SHA-256 hash", is_sha256, f"value={input_ref}")
+
+        # Absence of absolute confirmation language
+        banned_terms = ["confirmed phase", "confirmed phase purity", "purity confirmation"]
+        text_content = []
+        for obs in evidence.get("scientific_observations", []):
+            text_content.append(obs.lower())
+        for cb in evidence.get("claim_boundaries", []):
+            text_content.append(cb.lower())
+        for vg in evidence.get("validation_gaps", []):
+            text_content.append(vg.lower())
+        text_content.append(evidence.get("agent_ready_summary", "").lower())
+
+        # Clean approved/preferred phrases to avoid false-positive substring matches
+        approved_phrases = [
+            "phase-purity confirmation requires additional validation",
+            "phase-purity confirmation requires additional validation and complementary evidence",
+            "complementary xps, ftir, or raman evidence is recommended"
+        ]
+        cleaned_text_content = []
+        for text in text_content:
+            cleaned = text
+            for phrase in approved_phrases:
+                cleaned = cleaned.replace(phrase, "")
+            cleaned_text_content.append(cleaned)
+
+        found_banned = False
+        for term in banned_terms:
+            for text in cleaned_text_content:
+                if term in text:
+                    found_banned = True
+                    break
+
+        log_test("Absence of absolute confirmation language", not found_banned,
+                 "no absolute confirmation terms found" if not found_banned else "found banned terms")
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -309,6 +418,7 @@ if __name__ == "__main__":
     test_noise_only()
     test_empty_arrays()
     test_health_endpoint()
+    test_scientific_skills_layer()
 
     # Summary
     print("\n" + "═" * 56)

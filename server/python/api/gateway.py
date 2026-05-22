@@ -17,11 +17,15 @@ Launch:
 from __future__ import annotations
 
 import io
+import json
 import logging
 import sys
 import time
+import uuid
+import datetime
+import hashlib
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -40,6 +44,9 @@ from api.schemas import (
     ReferenceMarkerResponse,
     XRDProcessRequest,
     XRDProcessResponse,
+    ScienceSkill,
+    ScientificEvidenceObject,
+    XRDSkillProcessResponse,
 )
 from xrd_engine.domain.models.xrd_params import (
     BaselineParams,
@@ -581,6 +588,205 @@ async def match_reference(request: MatchRequest):
             status_code=500,
             detail=f"Phase matching failed: {exc}",
         )
+
+
+# ============================================================================
+# Scientific Skill Layer
+# ============================================================================
+
+
+SKILL_REGISTRY: Dict[str, ScienceSkill] = {
+    "xrd-science-skill": ScienceSkill(
+        skill_id="xrd-science-skill",
+        skill_label="XRD Science Skill",
+        technique="XRD",
+        description="Processes bulk diffraction patterns to resolve phase indications.",
+        inputs="Raw 1D diffraction pattern (.raw, .xy)",
+        outputs="Skill-derived peak positions & reference matching",
+        status="active",
+    ),
+    "xps-science-skill": ScienceSkill(
+        skill_id="xps-science-skill",
+        skill_label="XPS Science Skill",
+        technique="XPS",
+        description="Deconstructs surface photoemission envelopes into chemical assignments.",
+        inputs="Core-level photoemission spectra",
+        outputs="Skill-derived chemical state and oxidation envelopes",
+        status="inactive",
+    ),
+    "ftir-science-skill": ScienceSkill(
+        skill_id="ftir-science-skill",
+        skill_label="FTIR Science Skill",
+        technique="FTIR",
+        description="Analyzes IR transmittance patterns for functional groups.",
+        inputs="Transmittance/absorbance IR spectra",
+        outputs="Skill-derived vibrational bands and functional bonds",
+        status="inactive",
+    ),
+    "raman-science-skill": ScienceSkill(
+        skill_id="raman-science-skill",
+        skill_label="Raman Science Skill",
+        technique="Raman",
+        description="Identifies active vibrational modes to fingerprint local lattice structures.",
+        inputs="Raman shift-intensity signal",
+        outputs="Skill-derived vibrational modes and local symmetries",
+        status="inactive",
+    ),
+    "cross-fusion-skill": ScienceSkill(
+        skill_id="cross-fusion-skill",
+        skill_label="Cross-Technique Fusion Skill",
+        technique="Fusion",
+        description="Fuses evidence from multiple experimental methods to check for consistency and resolve validation gaps.",
+        inputs="Multiple technique evidence objects (XRD, XPS, FTIR, Raman)",
+        outputs="Fused multi-tech scientific claim boundaries",
+        status="inactive",
+    ),
+    "validation-boundary-skill": ScienceSkill(
+        skill_id="validation-boundary-skill",
+        skill_label="Validation Boundary Skill",
+        technique="Validation",
+        description="Delineates the scientific limits and validation boundaries of current claims.",
+        inputs="Claim evidence objects",
+        outputs="Defined validation boundaries and identified instrumentation gaps",
+        status="inactive",
+    ),
+    "evidence-to-report-skill": ScienceSkill(
+        skill_id="evidence-to-report-skill",
+        skill_label="Evidence-to-Report Skill",
+        technique="Report",
+        description="Assembles evidence and validation boundaries into reproducible scientific reports.",
+        inputs="Fused claim boundaries and provenance records",
+        outputs="Notebook memory ready for scientific archival",
+        status="inactive",
+    ),
+}
+
+
+def _compute_input_reference(x: List[float], y: List[float]) -> str:
+    """Compute a deterministic SHA-256 hash representation of the input dataset coordinates."""
+    hasher = hashlib.sha256()
+    data_str = f"x:{[float(v) for v in x]},y:{[float(v) for v in y]}"
+    hasher.update(data_str.encode("utf-8"))
+    return hasher.hexdigest()
+
+
+@app.get(
+    "/skills",
+    response_model=List[ScienceSkill],
+    tags=["Scientific Skills"],
+)
+async def list_skills():
+    """
+    List all registered Scientific Skills in DIFARYX.
+    """
+    return list(SKILL_REGISTRY.values())
+
+
+@app.get(
+    "/skills/{technique}",
+    response_model=ScienceSkill,
+    responses={404: {"model": ErrorResponse}},
+    tags=["Scientific Skills"],
+)
+async def get_skill(technique: str):
+    """
+    Retrieve skill metadata by technique name or skill ID (case-insensitive).
+    """
+    search_term = technique.strip().lower()
+    for skill in SKILL_REGISTRY.values():
+        if (
+            skill.skill_id.lower() == search_term
+            or skill.technique.lower() == search_term
+        ):
+            return skill
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"Science Skill not found for technique/ID: '{technique}'",
+    )
+
+
+@app.post(
+    "/skills/xrd/process",
+    response_model=XRDSkillProcessResponse,
+    responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+    tags=["Scientific Skills"],
+)
+async def process_xrd_skill(request: XRDProcessRequest):
+    """
+    Wrap the existing XRD signal processor as a Science Skill,
+    returning a validation-bounded ScientificEvidenceObject alongside
+    the legacy processor result.
+    """
+    # Execute XRD pipeline processing
+    legacy_res = await process_xrd(request)
+
+    # Compute coordinate-based input reference hash
+    x_list = request.x or []
+    y_list = request.y or []
+    input_ref = _compute_input_reference(x_list, y_list)
+
+    # Compile observations
+    observations = [
+        f"Detected {len(legacy_res.detected_peaks)} peaks in the 2θ range [{request.theta_min}°, {request.theta_max}°].",
+        f"Successfully fitted {len(legacy_res.fitted_peaks)} peaks using {request.fit_model.model_type.value} profiles."
+    ]
+    if legacy_res.phase_match:
+        primary_phase = legacy_res.phase_match.primary_phase
+        observations.append(
+            f"Phase match identification suggests a reference-supported phase indication matching {primary_phase} in the {legacy_res.phase_match.db_source} catalog (ID: {legacy_res.phase_match.catalog_id})."
+        )
+    else:
+        observations.append("No reference-supported phase indication could be resolved from the current database catalog.")
+
+    # Strictly use bounded language (avoiding absolute claims such as "confirmed phase purity")
+    claim_boundaries = [
+        "The resolved phase labels represent a reference-supported phase indication rather than a definitive phase confirmation.",
+        "The claim is a validation-limited scientific claim based solely on 1D bulk diffraction geometry.",
+        "Phase-purity confirmation requires additional validation and complementary evidence."
+    ]
+
+    validation_gaps = [
+        "Bulk crystallography cannot resolve surface-state oxidation states or localized grain boundaries; complementary XPS, FTIR, or Raman evidence is recommended.",
+        "Lattice parameter matching is limited by database reference variations and potential solid-solution shift errors."
+    ]
+
+    phase_str = f"reference-supported phase indication for '{legacy_res.phase_match.primary_phase}'" if legacy_res.phase_match else "no resolved phase match"
+    agent_ready_summary = (
+        f"XRD analysis resolved {len(legacy_res.fitted_peaks)} fitted peaks with a signal-to-noise ratio (SNR) of {legacy_res.sn_ratio:.2f}. "
+        f"Phase matching yields a {phase_str}. This is a validation-limited scientific claim. "
+        f"Phase-purity confirmation requires additional validation and complementary evidence; complementary XPS, FTIR, or Raman evidence is recommended."
+    )
+
+    # Convert to JSON-safe dictionary
+    raw_result = json.loads(legacy_res.json())
+
+    # Build the evidence object
+    evidence = ScientificEvidenceObject(
+        evidence_id=str(uuid.uuid4()),
+        schema_version="1.0.0",
+        skill_id="xrd-science-skill",
+        skill_label="XRD Science Skill",
+        technique="XRD",
+        input_reference=input_ref,
+        processing_summary=(
+            f"Baseline correction method: {request.baseline.method.value} (poly_order={request.baseline.poly_order}, half_window={request.baseline.half_window}); "
+            f"Smoothing method: {request.smoothing.method.value} (window_length={request.smoothing.window_length}); "
+            f"Peak fitting model: {request.fit_model.model_type.value}; "
+            f"Reference database: {request.database.reference_db.value}."
+        ),
+        scientific_observations=observations,
+        claim_boundaries=claim_boundaries,
+        validation_gaps=validation_gaps,
+        agent_ready_summary=agent_ready_summary,
+        raw_result=raw_result,
+        created_at=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+
+    return XRDSkillProcessResponse(
+        legacy_result=legacy_res,
+        evidence_object=evidence,
+    )
 
 
 # ============================================================================
