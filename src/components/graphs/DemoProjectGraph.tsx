@@ -1,11 +1,14 @@
 import React from 'react';
-import { Graph } from '../ui/Graph';
 import type {
   DemoGraphData,
   DemoGraphSource,
   DemoStructuredEvidence,
   TechniqueId,
 } from '../../data/demoProjectRegistry';
+
+const Graph = React.lazy(() =>
+  import('../ui/Graph').then((module) => ({ default: module.Graph }))
+);
 
 /**
  * DemoProjectGraph — shared graph/evidence renderer.
@@ -67,19 +70,44 @@ export function DemoProjectGraph({
       label: p.label,
     }));
 
+    const fallbackHeight = height ?? (compact ? '100%' : 400);
+
     return (
-      <Graph
-        type={graphType as 'xrd' | 'xps' | 'ftir' | 'raman'}
-        height={height ?? (compact ? '100%' : 400)}
-        externalData={source.data}
-        peakMarkers={peakMarkers}
-        xAxisLabel={source.xLabel}
-        yAxisLabel={source.yLabel}
-        showBackground={!compact}
-        showCalculated={!compact}
-        showResidual={false}
-        showLegend={showLegend}
-      />
+      <React.Suspense
+        fallback={
+          <div
+            style={{ height: fallbackHeight }}
+            className="flex w-full min-h-[120px] items-center justify-center bg-slate-950/90 border border-slate-800 rounded-lg relative overflow-hidden"
+          >
+            {/* Subtle grid lines to mimic a real chart backdrop */}
+            <div className="absolute inset-0 grid grid-cols-6 grid-rows-4 opacity-[0.03]">
+              {Array.from({ length: 24 }).map((_, i) => (
+                <div key={i} className="border-t border-l border-white" />
+              ))}
+            </div>
+            {/* Sleek, pulsing loader */}
+            <div className="flex flex-col items-center gap-1.5 z-10">
+              <div className="h-5 w-5 rounded-full border-2 border-slate-800 border-t-blue-500 animate-spin" />
+              <span className="text-[9px] font-mono tracking-widest text-slate-500 uppercase">
+                Loading spectrum...
+              </span>
+            </div>
+          </div>
+        }
+      >
+        <Graph
+          type={graphType as 'xrd' | 'xps' | 'ftir' | 'raman'}
+          height={height ?? (compact ? '100%' : 400)}
+          externalData={source.data}
+          peakMarkers={peakMarkers}
+          xAxisLabel={source.xLabel}
+          yAxisLabel={source.yLabel}
+          showBackground={!compact}
+          showCalculated={!compact}
+          showResidual={false}
+          showLegend={showLegend}
+        />
+      </React.Suspense>
     );
   }
 

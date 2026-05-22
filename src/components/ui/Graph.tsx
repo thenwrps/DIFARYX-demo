@@ -344,6 +344,20 @@ function PeakMarkerDot(props: {
 
 // ── Main Component ───────────────────────────────────────────────────
 
+function getLabeledMarkerPositions(type: SpectrumType, markers: PeakMarker[]) {
+  if (type !== 'xrd' || markers.length <= 3) {
+    return new Set(markers.filter((marker) => marker.label && marker.role === 'selected').map((marker) => marker.position));
+  }
+
+  return new Set(
+    [...markers]
+      .filter((marker) => marker.label)
+      .sort((a, b) => b.intensity - a.intensity)
+      .slice(0, 3)
+      .map((marker) => marker.position),
+  );
+}
+
 export function Graph({
   type = 'xrd',
   height = 400,
@@ -392,6 +406,7 @@ export function Graph({
     ];
 
     const markers = peakMarkers ?? [];
+    const labeledMarkerPositions = getLabeledMarkerPositions(type, markers);
     const heightClass = height === '100%' ? 'h-full' : height === 100 ? 'h-[100px]' : 'h-[400px]';
 
     return (
@@ -476,7 +491,7 @@ export function Graph({
                   strokeWidth={isSelected ? 2.5 : isLinked ? 2 : 1}
                   strokeOpacity={isSelected ? 0.85 : isLinked ? 0.6 : 0.18}
                   label={
-                    m.label && isSelected
+                    m.label && labeledMarkerPositions.has(m.position)
                       ? {
                           value: m.label,
                           position: 'top',

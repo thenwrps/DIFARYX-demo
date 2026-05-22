@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { DashboardLayout } from '../components/layout/DashboardLayout';
 import { Card } from '../components/ui/Card';
-import { Graph } from '../components/ui/Graph';
 import {
   AlertTriangle,
   ArrowRight,
@@ -59,6 +58,7 @@ import {
 import { DemoProjectGraph } from '../components/graphs/DemoProjectGraph';
 import { getProjectEvidenceSnapshot } from '../utils/evidenceSnapshot';
 import { getRuntimeBadgeClass, getRuntimeBadgeLabel } from '../runtime/difaryxRuntimeMode';
+import { getAnalysisSessions } from '../data/analysisSessions';
 import {
   getStoredWorkspaceMode,
   setWorkspaceMode,
@@ -72,13 +72,13 @@ import { runWhenIdle } from '../utils/idle';
 
 /* ─── workflow chain (top of dashboard) ─── */
 const WORKFLOW_STEPS = [
-  'Objective',
-  'Context',
-  'Evidence',
-  'Reasoning',
-  'Gap',
-  'Decision',
-  'Memory',
+  'Research Objective',
+  'Experimental Context',
+  'Science Skills',
+  'Agent Reasoning',
+  'Validation Gaps',
+  'Next Decision',
+  'Notebook Memory',
 ];
 
 /* ─── severity / urgency helpers ─── */
@@ -175,10 +175,10 @@ function ProjectCard({ project }: { project: RegistryProject }) {
   const readinessLabel = evidenceSnapshot.pendingTechniques.length > 0
     ? 'Validation-limited'
     : project.reportReadiness >= 80
-      ? 'Report-ready'
+      ? 'Reference-supported'
       : project.reportReadiness >= 50
-        ? 'Discussion-ready'
-        : 'Requires processing';
+        ? 'Validation-limited'
+        : 'Complementary required';
   const readinessColor = project.reportReadiness >= 80
     ? 'text-primary'
     : project.reportReadiness >= 50
@@ -225,7 +225,7 @@ function ProjectCard({ project }: { project: RegistryProject }) {
           <div className="flex flex-wrap gap-1">
             {evidenceSnapshot.availableTechniques.map((tech) => (
               <span key={tech} className="rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary">
-                {tech}
+                {tech} Skill
               </span>
             ))}
             {evidenceSnapshot.pendingTechniques.map((tech) => (
@@ -260,7 +260,7 @@ function ProjectCard({ project }: { project: RegistryProject }) {
         </div>
 
         <div className="text-[10px] font-medium text-text-dim tracking-wide">
-          <span className="text-text-muted">Assignment:</span> {formatChemicalFormula(evidenceSnapshot.supportedAssignment)}
+          <span className="text-text-muted">Phase Indication:</span> {formatChemicalFormula(evidenceSnapshot.supportedAssignment)}
         </div>
         <div className="text-[10px] font-medium text-text-dim tracking-wide line-clamp-1" title={firstValidationGap?.description ?? claimBoundaryLabel}>
           <span className="text-text-muted">Boundary:</span> {firstValidationGap?.description ?? claimBoundaryLabel}
@@ -268,7 +268,7 @@ function ProjectCard({ project }: { project: RegistryProject }) {
 
         {/* pipeline */}
         <div className="text-[10px] font-medium text-text-dim tracking-wide">
-          Processing <span className="text-primary/60">→</span> Refinement <span className="text-primary/60">→</span> Notebook
+          Science Skill Execution <span className="text-primary/60">→</span> Validation Check <span className="text-primary/60">→</span> Notebook Memory
         </div>
       </div>
 
@@ -342,11 +342,14 @@ export default function Dashboard() {
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [projectNotebookWizardOpen, setProjectNotebookWizardOpen] = useState(false);
   const [quickExperimentSetupOpen, setQuickExperimentSetupOpen] = useState(false);
+  const [uploadedSessionCount, setUploadedSessionCount] = useState(0);
   const [experimentContext, setExperimentContext] = useState<{
     type: 'research' | 'rd' | 'analytical';
     attachment: 'standalone' | 'attach';
   } | null>(null);
   const [workspaceMode, setWorkspaceModeState] = useState<WorkspaceMode>('demo');
+  const showUserWorkspace = workspaceMode === 'user' && isOAuthUser;
+  const showDemoProjects = !showUserWorkspace;
 
   useEffect(() => {
     setLocalExperiments(getLocalExperiments());
@@ -379,6 +382,17 @@ export default function Dashboard() {
     }
   }, [isOAuthUser, location.search, user]);
 
+  useEffect(() => {
+    if (!showUserWorkspace) {
+      setUploadedSessionCount(0);
+      return;
+    }
+
+    return runWhenIdle(() => {
+      setUploadedSessionCount(getAnalysisSessions().filter((session) => session.source === 'user_uploaded').length);
+    });
+  }, [showUserWorkspace]);
+
   const handleSwitchMode = (mode: WorkspaceMode) => {
     if (mode === 'user' && !isOAuthUser) {
       navigate('/signin', { state: { from: location } });
@@ -400,9 +414,6 @@ export default function Dashboard() {
   const handleGoogleSignIn = () => {
     navigate('/signin', { state: { from: location } });
   };
-
-  const showUserWorkspace = workspaceMode === 'user' && isOAuthUser;
-  const showDemoProjects = !showUserWorkspace;
 
   /* aggregate stats */
   const totalGaps = demoProjectRegistry.reduce((sum, p) => sum + p.validationGapCount, 0);
@@ -428,7 +439,7 @@ export default function Dashboard() {
               )}
             </div>
             <p className="text-text-muted mt-0.5 text-xs">
-              {showDemoProjects ? 'Research projects, evidence coverage, validation gaps, and scientific decisions.' : 'User workspace ready for evidence upload and project creation.'}
+              {showDemoProjects ? 'Scientific research managed through modular skill layers, evidence validation, and analytical reasoning.' : 'No user project exists yet. Uploaded evidence sessions are stored separately in Analysis History.'}
             </p>
             {isOAuthUser && user?.email && (
               <p className="text-text-muted mt-1 text-xs">
@@ -458,7 +469,7 @@ export default function Dashboard() {
             <div className="mb-4 rounded-md border border-border bg-surface px-3 py-2">
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="mr-1 text-[10px] font-bold uppercase tracking-wider text-text-muted">
-                  Workflow
+                  Scientific Skill Layer Workflow
                 </span>
                 {WORKFLOW_STEPS.map((step, index) => (
                   <React.Fragment key={step}>
@@ -499,7 +510,6 @@ export default function Dashboard() {
             </div>
           </>
         )}
-
         {/* User Workspace Empty State */}
         {showUserWorkspace && (
           <div className="mb-6">
@@ -517,7 +527,7 @@ export default function Dashboard() {
                 <FlaskConical size={48} className="mx-auto text-text-dim mb-4" />
                 <h3 className="text-lg font-bold text-text-main mb-2">No user projects yet</h3>
                 <p className="text-sm text-text-muted mb-6">
-                  Upload evidence files to start your first project, or switch to Demo Mode to explore example workflows.
+                  Upload evidence files to start a project. Existing uploaded evidence sessions remain available separately and can be opened from history.
                 </p>
                 <div className="flex flex-wrap justify-center gap-3">
                   <Button variant="primary" className="gap-2" onClick={() => navigate('/analysis?source=user_uploaded')}>
@@ -526,6 +536,12 @@ export default function Dashboard() {
                   <Button variant="outline" className="gap-2" onClick={() => setCreateMenuOpen(true)}>
                     <Plus size={16} /> Create Project
                   </Button>
+                  <Link
+                    to="/history?mode=user"
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-white px-4 text-sm font-semibold text-text-main hover:bg-surface-hover"
+                  >
+                    <Clock size={16} /> View uploaded sessions{uploadedSessionCount > 0 ? ` (${uploadedSessionCount})` : ''}
+                  </Link>
                   <Button variant="outline" className="gap-2" onClick={() => handleSwitchMode('demo')}>
                     Use Demo Project
                   </Button>
