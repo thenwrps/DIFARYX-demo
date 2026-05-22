@@ -11,10 +11,10 @@ export interface DemoPeak {
 export type ClaimStatus = 'strongly_supported' | 'supported' | 'partial' | 'inconclusive' | 'contradicted';
 
 function formatClaimStatusLabel(status: ClaimStatus): string {
-  if (status === 'strongly_supported') return 'Supported assignment with validation boundaries';
-  if (status === 'supported') return 'Requires validation';
-  if (status === 'partial') return 'Validation-limited';
-  if (status === 'inconclusive') return 'Publication-limited';
+  if (status === 'strongly_supported') return 'Reference-supported phase indication';
+  if (status === 'supported') return 'Validation-limited scientific claim';
+  if (status === 'partial') return 'Complementary evidence required';
+  if (status === 'inconclusive') return 'Validation-limited scientific claim (Inconclusive)';
   return 'Claim boundary';
 }
 export type ValidationState = 'complete' | 'partial' | 'requires_validation';
@@ -258,7 +258,7 @@ export const demoProjects: DemoProject[] = [
     id: 'cu-fe2o4-spinel',
     name: 'CuFe₂O₄ Spinel',
     material: 'Copper ferrite spinel',
-    objective: 'Confirm CuFe₂O₄ spinel phase identity and assess phase purity for publication readiness.',
+    objective: 'Evaluate CuFe₂O₄ spinel reference-supported phase indication and identify validation limits of the bulk phase assignment.',
     jobType: 'research',
     techniques: ['XRD', 'Raman'],
     techniqueMetadata: [
@@ -266,8 +266,8 @@ export const demoProjects: DemoProject[] = [
       { key: 'Raman', label: 'Raman', role: 'Lattice mode', status: 'ready', dataAvailable: true },
     ],
     evidenceSources: [
-      { technique: 'XRD', datasetId: 'xrd-cufe2o4-clean', datasetLabel: 'CuFe₂O₄ clean XRD', description: 'Nine diffraction peaks at 17.1–61.6° 2θ match CuFe₂O₄ spinel reference positions; strongest reflection at 35.6° (400).', available: true },
-      { technique: 'Raman', datasetId: 'raman-cufe2o4-demo', datasetLabel: 'CuFe₂O₄ Raman spectrum', description: 'A1g mode near 690 cm⁻¹ and T2g features support local spinel symmetry assignment.', available: true },
+      { technique: 'XRD', datasetId: 'xrd-cufe2o4-clean', datasetLabel: 'CuFe₂O₄ clean XRD', description: 'XRD Science Skill: Nine diffraction reflections at 17.1–61.6° 2θ match CuFe₂O₄ spinel reference positions; strongest reflection at 35.6° (400).', available: true },
+      { technique: 'Raman', datasetId: 'raman-cufe2o4-demo', datasetLabel: 'CuFe₂O₄ Raman spectrum', description: 'Raman Science Skill: A1g mode near 690 cm⁻¹ and T2g features support local spinel symmetry assignment.', available: true },
     ],
     status: 'Report Ready',
     claimStatus: 'strongly_supported',
@@ -276,7 +276,7 @@ export const demoProjects: DemoProject[] = [
     lastUpdated: '2 hours ago',
     createdDate: '2026-04-29',
     summary:
-      'XRD analysis identified 9 diffraction peaks. The observed pattern supports CuFe₂O₄ spinel phase assignment, with validation still required before publication-level phase-purity claims.',
+      'XRD Science Skill execution identified 9 diffraction peaks. The observed pattern provides a reference-supported phase indication for CuFe₂O₄ spinel, but represents a validation-limited scientific claim pending surface oxidation-state checks.',
     xrdPeaks: [
       { position: 17.1, intensity: 72, label: '(111)' },
       { position: 20.8, intensity: 31, label: '(220)' },
@@ -289,20 +289,20 @@ export const demoProjects: DemoProject[] = [
       { position: 61.6, intensity: 44, label: '(533)' },
     ],
     evidence: [
-      'XRD reflections near 30.1 deg, 35.5 deg, and 43.2 deg 2theta align with spinel ferrite reference peaks.',
-      'Raman A1g/T2g vibrational features support local spinel symmetry.',
-      'Peak width and unresolved weak reflections indicate validation is still required before phase-purity claims.',
+      'XRD Science Skill: Reflections near 30.1 deg, 35.5 deg, and 43.2 deg 2theta align with spinel ferrite reference peaks.',
+      'Raman Science Skill: A1g/T2g vibrational features support local spinel symmetry.',
+      'Cross-Technique Fusion Skill: Peak width and unresolved weak reflections indicate validation-limited scientific claim; complementary evidence is required.',
     ],
     validationGaps: [
       {
         id: 'gap-cu-surface',
-        description: 'Surface oxidation state not confirmed by surface-sensitive technique (XPS).',
+        description: 'Validation Boundary Skill: Surface oxidation state not confirmed by surface-sensitive technique (XPS).',
         severity: 'moderate',
-        suggestedResolution: 'Run XPS survey to confirm Cu²⁺/Fe³⁺ oxidation envelope.',
+        suggestedResolution: 'Run XPS Science Skill survey to confirm Cu²⁺/Fe³⁺ oxidation envelope.',
       },
       {
         id: 'gap-cu-phase-purity',
-        description: 'Phase purity claims limited by unresolved weak reflections.',
+        description: 'Validation Boundary Skill: Phase purity claims limited by unresolved weak reflections.',
         severity: 'low',
         suggestedResolution: 'High-resolution XRD scan or Rietveld refinement to resolve minor phases.',
       },
@@ -311,19 +311,19 @@ export const demoProjects: DemoProject[] = [
       {
         id: 'dec-cu-xps',
         label: 'Run XPS surface analysis',
-        description: 'Confirm surface oxidation state for publication-level claims.',
+        description: 'Resolve surface oxidation state to address the validation-limited scientific claim.',
         urgency: 'medium',
         linkedTechnique: 'XPS',
       },
       {
         id: 'dec-cu-export',
         label: 'Export notebook report',
-        description: 'Phase assignment is supported; export with validation boundaries noted.',
+        description: 'Phase assignment is reference-supported; export with validation boundaries noted.',
         urgency: 'low',
       },
     ],
     recommendations: [
-      'Review notebook synthesis conditions before export.',
+      'Review synthesis conditions before exporting report.',
       'Run multi-tech correlation if surface oxidation state needs confirmation.',
     ],
     reportReadiness: {
@@ -335,20 +335,20 @@ export const demoProjects: DemoProject[] = [
     notebook: {
       title: 'Exp-042: CuFe₂O₄ Spinel Phase Confirmation',
       pipeline: [
-        'Imported XRD scan and normalized intensity baseline.',
-        'Detected local maxima and filtered instrument noise.',
-        'Matched observed reflections against ferrite reference phases.',
-        'Generated evidence-linked phase interpretation.',
+        'XRD Science Skill: Imported XRD scan and normalized intensity baseline.',
+        'XRD Science Skill: Detected local maxima and filtered instrument noise.',
+        'XRD Science Skill: Matched observed reflections against ferrite reference phases.',
+        'Evidence-to-Report Skill: Generated evidence-linked phase interpretation.',
       ],
       peakDetection:
         '9 diffraction peaks detected across 17.1-61.6 degrees 2theta after baseline correction.',
       phaseIdentification:
-        'XRD analysis identified 9 diffraction peaks. The observed pattern supports CuFe₂O₄ spinel phase assignment, with validation still required before publication-level phase-purity claims.',
+        'XRD Science Skill execution identified 9 diffraction peaks. The observed pattern provides a reference-supported phase indication for CuFe₂O₄ spinel, representing a validation-limited scientific claim pending complementary surface and chemical evidence.',
     },
     history: [
       {
         id: 'hist-cu-xrd',
-        run: 'XRD phase identification',
+        run: 'XRD Science Skill execution',
         technique: 'XRD',
         claimStatus: 'strongly_supported',
         status: 'Report Ready',
@@ -380,7 +380,7 @@ export const demoProjects: DemoProject[] = [
     id: 'cufe2o4-sba15',
     name: 'CuFe₂O₄/SBA-15',
     material: 'Copper ferrite on mesoporous silica',
-    objective: 'Correlate multi-technique evidence to confirm CuFe₂O₄ dispersion on mesoporous SBA-15 support.',
+    objective: 'Apply Cross-Technique Fusion Skill to correlate multi-technique evidence and evaluate CuFe₂O₄ dispersion on mesoporous SBA-15 support.',
     jobType: 'rnd',
     techniques: ['XRD', 'XPS', 'FTIR', 'Raman'],
     techniqueMetadata: [
@@ -390,10 +390,10 @@ export const demoProjects: DemoProject[] = [
       { key: 'Raman', label: 'Raman', role: 'Lattice mode', status: 'ready', dataAvailable: true },
     ],
     evidenceSources: [
-      { technique: 'XRD', datasetId: 'xrd-cufe2o4-sba15-demo', datasetLabel: 'CuFe₂O₄/SBA-15 XRD', description: 'CuFe₂O₄-assigned reflections at 30.1°, 35.5°, and 43.2° 2θ remain visible in the SBA-15 supported sample; broad silica shoulder near 20.9°.', available: true },
-      { technique: 'XPS', datasetId: 'xps-cufe2o4-sba15-demo', datasetLabel: 'CuFe₂O₄/SBA-15 XPS', description: 'Cu 2p and Fe 2p binding energies indicate mixed-oxide surface state on silica support; oxidation-state assignment requires peak fitting.', available: true },
-      { technique: 'FTIR', datasetId: 'ftir-cufe2o4-sba15-demo', datasetLabel: 'CuFe₂O₄/SBA-15 FTIR', description: 'Si–O–Si stretching bands at ~1080 cm⁻¹ confirm SBA-15 matrix; metal–oxygen bands provide contextual ferrite evidence.', available: true },
-      { technique: 'Raman', datasetId: 'raman-cufe2o4-sba15-demo', datasetLabel: 'CuFe₂O₄/SBA-15 Raman', description: 'Ferrite-like A1g/T2g modes support local spinel symmetry in the supported sample; intensity reduced relative to unsupported CuFe₂O₄.', available: true },
+      { technique: 'XRD', datasetId: 'xrd-cufe2o4-sba15-demo', datasetLabel: 'CuFe₂O₄/SBA-15 XRD', description: 'XRD Science Skill: CuFe₂O₄-assigned reflections at 30.1°, 35.5°, and 43.2° 2θ remain visible in the SBA-15 supported sample.', available: true },
+      { technique: 'XPS', datasetId: 'xps-cufe2o4-sba15-demo', datasetLabel: 'CuFe₂O₄/SBA-15 XPS', description: 'XPS Science Skill: Cu 2p and Fe 2p binding energies indicate mixed-oxide surface state; oxidation-state assignment requires peak fitting.', available: true },
+      { technique: 'FTIR', datasetId: 'ftir-cufe2o4-sba15-demo', datasetLabel: 'CuFe₂O₄/SBA-15 FTIR', description: 'FTIR Science Skill: Si–O–Si stretching bands at ~1080 cm⁻¹ confirm SBA-15 matrix; metal–oxygen bands provide contextual evidence.', available: true },
+      { technique: 'Raman', datasetId: 'raman-cufe2o4-sba15-demo', datasetLabel: 'CuFe₂O₄/SBA-15 Raman', description: 'Raman Science Skill: Ferrite-like A1g/T2g modes support local spinel symmetry; intensity reduced relative to unsupported bulk.', available: true },
     ],
     status: 'In Progress',
     claimStatus: 'supported',
@@ -402,7 +402,7 @@ export const demoProjects: DemoProject[] = [
     lastUpdated: '5 hours ago',
     createdDate: '2026-04-28',
     summary:
-      'Processed evidence supports CuFe₂O₄ spinel ferrite reflections in the CuFe₂O₄/SBA-15 sample, consistent with dispersed copper ferrite on mesoporous SBA-15. Phase distribution, loading uniformity, surface oxidation state, and support interaction remain validation-limited.',
+      'Cross-Technique Fusion Skill: Processed evidence supports CuFe₂O₄ spinel reflections in the supported sample, consistent with dispersed copper ferrite. Phase distribution, loading uniformity, surface oxidation state, and support interaction represent validation-limited scientific claims requiring complementary evidence.',
     xrdPeaks: [
       { position: 20.9, intensity: 24, label: 'SBA shoulder' },
       { position: 30.1, intensity: 44, label: '(220)' },
@@ -411,26 +411,26 @@ export const demoProjects: DemoProject[] = [
       { position: 57.1, intensity: 38, label: '(511)' },
     ],
     evidence: [
-      'XRD reflections assigned to CuFe₂O₄ remain visible in the supported CuFe₂O₄/SBA-15 sample.',
-      'Raman vibrational modes provide supporting evidence for ferrite-like local structure.',
-      'FTIR silica/support features contextualize the SBA-15 matrix but do not independently establish ferrite phase purity.',
+      'XRD Science Skill: Reflections assigned to CuFe₂O₄ remain visible in the supported sample, providing bulk phase indication.',
+      'Raman Science Skill: Vibrational modes provide local symmetry indications.',
+      'FTIR Science Skill: Silica support features define matrix context but do not independently support phase purity.',
     ],
     validationGaps: [
       {
         id: 'gap-sba-loading',
-        description: 'Ferrite loading uniformity on SBA-15 not quantified.',
+        description: 'Validation Boundary Skill: Ferrite loading uniformity on SBA-15 support is not quantified.',
         severity: 'critical',
         suggestedResolution: 'Quantify Cu/Fe ratio from XPS survey scan and compare with nominal loading.',
       },
       {
         id: 'gap-sba-dispersion',
-        description: 'Phase distribution across mesoporous support not mapped.',
+        description: 'Validation Boundary Skill: Phase distribution across mesoporous support is not mapped.',
         severity: 'moderate',
-        suggestedResolution: 'Run TEM-EDX or synchrotron XRD for spatial phase mapping.',
+        suggestedResolution: 'Run TEM-EDX or synchrotron XRD for spatial phase distribution.',
       },
       {
         id: 'gap-sba-surface',
-        description: 'Surface oxidation state of supported ferrite unresolved.',
+        description: 'Validation Boundary Skill: Surface oxidation state of supported ferrite remains unresolved.',
         severity: 'moderate',
         suggestedResolution: 'XPS high-resolution scan of Cu 2p and Fe 2p regions.',
       },
@@ -439,14 +439,14 @@ export const demoProjects: DemoProject[] = [
       {
         id: 'dec-sba-xps',
         label: 'Complete XPS Cu/Fe ratio quantification',
-        description: 'Loading uniformity is the primary validation gap for this project.',
+        description: 'Evaluate loading uniformity to address the primary validation boundary.',
         urgency: 'high',
         linkedTechnique: 'XPS',
       },
       {
         id: 'dec-sba-ftir',
         label: 'Compare FTIR silica bands',
-        description: 'Verify support matrix features before final report.',
+        description: 'Verify support matrix features to complement phase indication.',
         urgency: 'medium',
         linkedTechnique: 'FTIR',
       },
@@ -464,20 +464,20 @@ export const demoProjects: DemoProject[] = [
     notebook: {
       title: 'Exp-044: CuFe₂O₄/SBA-15 Multi-Tech Correlation',
       pipeline: [
-        'Loaded XRD, XPS, and FTIR datasets under one project context.',
-        'Aligned surface-state evidence with bulk phase indicators.',
-        'Compared metal-oxygen bands against SBA-15 support signatures.',
-        'Prepared multi-tech fusion summary for review.',
+        'Cross-Technique Fusion Skill: Loaded XRD, XPS, and FTIR datasets under one project context.',
+        'Cross-Technique Fusion Skill: Aligned surface-state evidence with bulk phase indicators.',
+        'Cross-Technique Fusion Skill: Compared metal-oxygen bands against SBA-15 support signatures.',
+        'Evidence-to-Report Skill: Prepared multi-tech fusion summary for review.',
       ],
       peakDetection:
         '5 ferrite-related reflections detected with broad SBA-15 support contribution.',
       phaseIdentification:
-        'CuFe₂O₄-related reflections observed in a CuFe₂O₄/SBA-15 supported sample. XRD supports structural assignment, while dispersion, loading uniformity, phase purity, and surface oxidation state remain validation-limited.',
+        'Cross-Technique Fusion Skill: XRD, Raman, and FTIR evidence correlated. Observed signals provide a validation-limited scientific claim of dispersed copper ferrite on SBA-15, with significant validation gaps in loading uniformity and surface states.',
     },
     history: [
       {
         id: 'hist-sba-multi',
-        run: 'Multi-tech correlation',
+        run: 'Cross-Technique Fusion Skill execution',
         technique: 'XRD + XPS + FTIR',
         claimStatus: 'supported',
         status: 'In Progress',
@@ -491,14 +491,14 @@ export const demoProjects: DemoProject[] = [
     id: 'nife2o4',
     name: 'NiFe₂O₄',
     material: 'Nickel ferrite spinel',
-    objective: 'Establish NiFe₂O₄ spinel phase identity as a control sample for the ferrite research program.',
+    objective: 'Apply XRD Science Skill to evaluate NiFe₂O₄ spinel phase indication as a control sample for the ferrite research program.',
     jobType: 'analytical',
     techniques: ['XRD'],
     techniqueMetadata: [
       { key: 'XRD', label: 'XRD', role: 'Bulk phase', status: 'ready', dataAvailable: true },
     ],
     evidenceSources: [
-      { technique: 'XRD', datasetId: 'xrd-nife2o4-control', datasetLabel: 'NiFe₂O₄ control XRD', description: 'Six reflections at 18.4°, 30.3°, 35.7°, 43.4°, 57.4°, and 63.0° 2θ match nickel ferrite spinel reference; no dominant secondary phase detected.', available: true },
+      { technique: 'XRD', datasetId: 'xrd-nife2o4-control', datasetLabel: 'NiFe₂O₄ control XRD', description: 'XRD Science Skill: Six reflections at 18.4°, 30.3°, 35.7°, 43.4°, 57.4°, and 63.0° 2θ match nickel ferrite spinel reference; no dominant secondary phase detected.', available: true },
     ],
     status: 'Report Ready',
     claimStatus: 'supported',
@@ -506,7 +506,7 @@ export const demoProjects: DemoProject[] = [
     phase: 'Spinel nickel ferrite',
     lastUpdated: '1 day ago',
     createdDate: '2026-04-27',
-    summary: 'XRD pattern consistent with spinel nickel ferrite.',
+    summary: 'XRD pattern consistent with spinel nickel ferrite reference-supported phase indication.',
     xrdPeaks: [
       { position: 18.4, intensity: 34, label: '(111)' },
       { position: 30.3, intensity: 48, label: '(220)' },
@@ -516,22 +516,22 @@ export const demoProjects: DemoProject[] = [
       { position: 63.0, intensity: 44, label: '(440)' },
     ],
     evidence: [
-      'Major XRD reflections align with nickel ferrite spinel.',
-      'No dominant secondary oxide peak detected in the working window.',
+      'XRD Science Skill: Major XRD reflections align with nickel ferrite spinel.',
+      'Validation Boundary Skill: No dominant secondary oxide peak detected in the working window; complementary evidence required for purity.',
     ],
     validationGaps: [
       {
         id: 'gap-ni-raman',
-        description: 'No Raman confirmation of vibrational fingerprint.',
+        description: 'Validation Boundary Skill: No Raman confirmation of vibrational fingerprint.',
         severity: 'low',
-        suggestedResolution: 'Run Raman measurement to confirm lattice mode assignment.',
+        suggestedResolution: 'Run Raman Science Skill measurement to confirm lattice mode assignment.',
       },
     ],
     nextDecisions: [
       {
         id: 'dec-ni-export',
         label: 'Export control report',
-        description: 'Phase assignment is supported; export as reference control.',
+        description: 'Phase assignment is reference-supported; export as reference control.',
         urgency: 'low',
       },
       {
@@ -552,17 +552,17 @@ export const demoProjects: DemoProject[] = [
     notebook: {
       title: 'Exp-041: NiFe₂O₄ Control Sample',
       pipeline: [
-        'Imported XRD control scan.',
-        'Detected spinel reflections.',
-        'Compared against nickel ferrite reference library.',
+        'XRD Science Skill: Imported XRD control scan.',
+        'XRD Science Skill: Detected spinel reflections.',
+        'XRD Science Skill: Compared against nickel ferrite reference library.',
       ],
       peakDetection: '6 major reflections detected after background subtraction.',
-      phaseIdentification: 'Pattern is consistent with spinel nickel ferrite, supported by evidence.',
+      phaseIdentification: 'XRD Science Skill: Pattern is consistent with spinel nickel ferrite reference-supported phase indication, representing a validation-limited scientific claim until complementary lattice/surface features are evaluated.',
     },
     history: [
       {
         id: 'hist-ni-xrd',
-        run: 'XRD phase identification',
+        run: 'XRD Science Skill execution',
         technique: 'XRD',
         claimStatus: 'supported',
         status: 'Report Ready',
@@ -576,7 +576,7 @@ export const demoProjects: DemoProject[] = [
     id: 'cofe2o4',
     name: 'CoFe₂O₄',
     material: 'Cobalt ferrite spinel',
-    objective: 'Verify cobalt ferrite spinel phase and surface chemistry for catalyst precursor characterization.',
+    objective: 'Evaluate cobalt ferrite spinel phase indication and surface chemistry via XRD and XPS Science Skills.',
     jobType: 'research',
     techniques: ['XRD', 'XPS'],
     techniqueMetadata: [
@@ -584,8 +584,8 @@ export const demoProjects: DemoProject[] = [
       { key: 'XPS', label: 'XPS', role: 'Surface state', status: 'ready', dataAvailable: true },
     ],
     evidenceSources: [
-      { technique: 'XRD', datasetId: 'xrd-cofe2o4-control', datasetLabel: 'CoFe₂O₄ control XRD', description: 'Six cobalt ferrite spinel reflections at 18.2°, 30.0°, 35.4°, 43.1°, 57.0°, and 62.6° 2θ; strongest peak at 35.4° (311).', available: true },
-      { technique: 'XPS', datasetId: 'xps-cofe2o4-demo', datasetLabel: 'CoFe₂O₄ XPS survey', description: 'Co 2p and Fe 2p binding energies consistent with Co²⁺/Co³⁺ and Fe³⁺ in cobalt ferrite; peak fitting required before archival claims.', available: true },
+      { technique: 'XRD', datasetId: 'xrd-cofe2o4-control', datasetLabel: 'CoFe₂O₄ control XRD', description: 'XRD Science Skill: Six cobalt ferrite spinel reflections at 18.2°, 30.0°, 35.4°, 43.1°, 57.0°, and 62.6° 2θ; strongest peak at 35.4° (311).', available: true },
+      { technique: 'XPS', datasetId: 'xps-cofe2o4-demo', datasetLabel: 'CoFe₂O₄ XPS survey', description: 'XPS Science Skill: Co 2p and Fe 2p binding energies consistent with Co²⁺/Co³⁺ and Fe³⁺; peak fitting required before archival claims.', available: true },
     ],
     status: 'Report Ready',
     claimStatus: 'strongly_supported',
@@ -593,7 +593,7 @@ export const demoProjects: DemoProject[] = [
     phase: 'Cobalt ferrite spinel phase',
     lastUpdated: '2 days ago',
     createdDate: '2026-04-26',
-    summary: 'Evidence supports cobalt ferrite spinel phase.',
+    summary: 'XRD and XPS Science Skills provide reference-supported phase indication for cobalt ferrite spinel.',
     xrdPeaks: [
       { position: 18.2, intensity: 32, label: '(111)' },
       { position: 30.0, intensity: 46, label: '(220)' },
@@ -603,13 +603,13 @@ export const demoProjects: DemoProject[] = [
       { position: 62.6, intensity: 47, label: '(440)' },
     ],
     evidence: [
-      'XRD confirms cobalt ferrite spinel reflections.',
-      'XPS supports expected cobalt and iron oxidation-state envelope.',
+      'XRD Science Skill: Confirms bulk cobalt ferrite spinel reflections.',
+      'XPS Science Skill: Supports expected cobalt and iron oxidation-state envelope; surface-sensitive claims remain validation-limited.',
     ],
     validationGaps: [
       {
         id: 'gap-co-xps-fit',
-        description: 'XPS oxidation-state envelope fit not fully resolved.',
+        description: 'Validation Boundary Skill: XPS oxidation-state envelope fit is not fully resolved.',
         severity: 'moderate',
         suggestedResolution: 'Review and refine XPS peak fitting for Co 2p and Fe 2p regions.',
       },
@@ -618,7 +618,7 @@ export const demoProjects: DemoProject[] = [
       {
         id: 'dec-co-review',
         label: 'Review XPS oxidation-state fit',
-        description: 'Refine surface chemistry evidence before archival.',
+        description: 'Refine surface chemistry evidence to support the scientific claim.',
         urgency: 'medium',
         linkedTechnique: 'XPS',
       },
@@ -639,17 +639,17 @@ export const demoProjects: DemoProject[] = [
     notebook: {
       title: 'Exp-039: CoFe₂O₄ Spinel Verification',
       pipeline: [
-        'Processed XRD scan and XPS survey.',
-        'Matched ferrite phase pattern.',
-        'Linked surface chemistry evidence to phase result.',
+        'XRD + XPS Science Skills: Processed XRD scan and XPS survey.',
+        'XRD Science Skill: Matched ferrite phase pattern.',
+        'Cross-Technique Fusion Skill: Linked surface chemistry evidence to phase result.',
       ],
       peakDetection: '6 ferrite reflections detected in the XRD pattern.',
-      phaseIdentification: 'Evidence supports cobalt ferrite spinel phase. Status: requires validation.',
+      phaseIdentification: 'XRD + XPS Science Skills: Combined bulk and surface evidence provides reference-supported phase indication. Status: validation-limited scientific claim pending peak fitting refinement.',
     },
     history: [
       {
         id: 'hist-co-xrd',
-        run: 'XRD + XPS review',
+        run: 'XRD + XPS Science Skills review',
         technique: 'XRD + XPS',
         claimStatus: 'strongly_supported',
         status: 'Report Ready',
@@ -663,7 +663,7 @@ export const demoProjects: DemoProject[] = [
     id: 'fe3o4-nanoparticles',
     name: 'Fe₃O₄ Nanoparticles',
     material: 'Iron oxide nanoparticles',
-    objective: 'Identify iron oxide nanoparticle phase and distinguish Fe₃O₄ from gamma-Fe₂O₃.',
+    objective: 'Apply FTIR and Raman Science Skills to examine iron oxide nanoparticle vibrational fingerprints and identify phase ambiguity.',
     jobType: 'rnd',
     techniques: ['FTIR', 'Raman'],
     techniqueMetadata: [
@@ -671,8 +671,8 @@ export const demoProjects: DemoProject[] = [
       { key: 'Raman', label: 'Raman', role: 'Lattice mode', status: 'ready', dataAvailable: true },
     ],
     evidenceSources: [
-      { technique: 'FTIR', datasetId: 'ftir-fe3o4-nanoparticles-demo', datasetLabel: 'Fe₃O₄ nanoparticle FTIR', description: 'Fe–O stretching band near 580 cm⁻¹ indicates iron oxide lattice vibration; surface hydroxyl contribution visible near 3400 cm⁻¹.', available: true },
-      { technique: 'Raman', datasetId: 'raman-fe3o4-nanoparticles-demo', datasetLabel: 'Fe₃O₄ nanoparticle Raman', description: 'A1g mode near 670 cm⁻¹ suggests magnetite-like local symmetry; XRD confirmation needed to distinguish Fe₃O₄ from γ-Fe₂O₃.', available: true },
+      { technique: 'FTIR', datasetId: 'ftir-fe3o4-nanoparticles-demo', datasetLabel: 'Fe₃O₄ nanoparticle FTIR', description: 'FTIR Science Skill: Fe–O stretching band near 580 cm⁻¹ indicates iron oxide lattice vibration; surface hydroxyl contribution visible near 3400 cm⁻¹.', available: true },
+      { technique: 'Raman', datasetId: 'raman-fe3o4-nanoparticles-demo', datasetLabel: 'Fe₃O₄ nanoparticle Raman', description: 'Raman Science Skill: A1g mode near 670 cm⁻¹ suggests magnetite-like local symmetry; XRD confirmation needed to resolve phase ambiguity.', available: true },
     ],
     status: 'In Progress',
     claimStatus: 'partial',
@@ -681,7 +681,7 @@ export const demoProjects: DemoProject[] = [
     lastUpdated: '1 week ago',
     createdDate: '2026-04-22',
     summary:
-      'FTIR/Raman evidence suggests iron oxide nanoparticle signatures with surface hydroxyl contribution.',
+      'FTIR and Raman Science Skills suggest iron oxide nanoparticle signatures with surface hydroxyl contribution, representing a validation-limited scientific claim.',
     xrdPeaks: [
       { position: 30.2, intensity: 39, label: '(220)' },
       { position: 35.5, intensity: 82, label: '(311)' },
@@ -690,20 +690,20 @@ export const demoProjects: DemoProject[] = [
       { position: 62.7, intensity: 38, label: '(440)' },
     ],
     evidence: [
-      'FTIR metal-oxygen band indicates iron oxide lattice vibration.',
-      'Raman band pattern suggests magnetite-like nanoparticle signatures.',
-      'Surface hydroxyl contribution remains visible in FTIR.',
+      'FTIR Science Skill: Metal-oxygen band indicates iron oxide lattice vibration.',
+      'Raman Science Skill: Band pattern suggests magnetite-like nanoparticle signatures.',
+      'Validation Boundary Skill: Surface hydroxyl contribution remains visible in FTIR; complementary bulk XRD is required.',
     ],
     validationGaps: [
       {
         id: 'gap-fe-xrd',
-        description: 'No XRD data to distinguish Fe₃O₄ from gamma-Fe₂O₃.',
+        description: 'Validation Boundary Skill: No XRD data to distinguish Fe₃O₄ from gamma-Fe₂O₃.',
         severity: 'critical',
-        suggestedResolution: 'Run XRD measurement on nanoparticle sample.',
+        suggestedResolution: 'Run XRD Science Skill measurement on nanoparticle sample.',
       },
       {
         id: 'gap-fe-size',
-        description: 'Particle size distribution not characterized.',
+        description: 'Validation Boundary Skill: Particle size distribution is not characterized.',
         severity: 'moderate',
         suggestedResolution: 'TEM or DLS measurement for size distribution.',
       },
@@ -712,18 +712,18 @@ export const demoProjects: DemoProject[] = [
       {
         id: 'dec-fe-xrd',
         label: 'Run XRD phase confirmation',
-        description: 'Critical: XRD needed to resolve phase ambiguity between magnetite and maghemite.',
+        description: 'Critical: XRD Science Skill needed to resolve phase ambiguity between magnetite and maghemite.',
         urgency: 'high',
         linkedTechnique: 'XRD',
       },
       {
         id: 'dec-fe-tem',
         label: 'Characterize particle size',
-        description: 'Size distribution needed for publication-ready nanoparticle characterization.',
+        description: 'Size distribution needed to complement the vibrational phase indication.',
         urgency: 'medium',
       },
     ],
-    recommendations: ['Run XRD confirmation to distinguish Fe₃O₄ from gamma-Fe₂O₃.'],
+    recommendations: ['Run XRD phase confirmation to resolve magnetite/maghemite phase ambiguity.'],
     reportReadiness: {
       notebookReady: false,
       exportReady: false,
@@ -733,18 +733,18 @@ export const demoProjects: DemoProject[] = [
     notebook: {
       title: 'Exp-040: Fe₃O₄ Nanoparticle Surface Signature',
       pipeline: [
-        'Imported FTIR and Raman spectra.',
-        'Marked metal-oxygen and hydroxyl bands.',
-        'Compared Raman bands with iron oxide nanoparticle references.',
+        'FTIR/Raman Science Skills: Imported FTIR and Raman spectra.',
+        'FTIR/Raman Science Skills: Marked metal-oxygen and hydroxyl bands.',
+        'Cross-Technique Fusion Skill: Compared Raman bands with iron oxide nanoparticle references.',
       ],
       peakDetection: 'Raman and FTIR bands suggest iron oxide nanoparticle signatures.',
       phaseIdentification:
-        'Iron oxide nanoparticle assignment is in progress, partially supported by current evidence.',
+        'FTIR + Raman Science Skills: Iron oxide vibrational features are detected. Assignment remains validation-limited due to phase ambiguity; complementary bulk diffraction evidence is required.',
     },
     history: [
       {
         id: 'hist-fe-ftir',
-        run: 'FTIR/Raman evidence review',
+        run: 'FTIR/Raman Science Skills review',
         technique: 'FTIR + Raman',
         claimStatus: 'partial',
         status: 'In Progress',

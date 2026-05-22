@@ -302,17 +302,17 @@ function normalizeClaimStatus(raw: RawDemoProject['claimStatus']): ClaimStatus {
 function statusLabelFor(claim: ClaimStatus): string {
   switch (claim) {
     case 'supported_assignment':
-      return 'Supported assignment';
+      return 'Reference-supported phase indication';
     case 'requires_validation':
-      return 'Requires validation';
+      return 'Validation-limited scientific claim';
     case 'validation_limited':
-      return 'Validation-limited';
+      return 'Complementary evidence required';
     case 'report_ready':
-      return 'Report-ready';
+      return 'Validation-limited scientific claim (Report-ready)';
     case 'processing_required':
-      return 'Requires processing';
+      return 'Complementary evidence required (Processing)';
     default:
-      return 'Requires validation';
+      return 'Validation-limited scientific claim';
   }
 }
 
@@ -677,17 +677,17 @@ function buildNotebookEntry(project: RawDemoProject, claim: ClaimStatus): DemoNo
   let decision = project.nextDecisions[0]?.description || 'Review evidence and plan next experiment.';
   const evidenceBasis = [
     ...project.evidence.slice(0, 3),
-    ...project.evidenceSources.slice(0, 2).map((s) => `${s.technique}: ${s.description}`),
+    ...project.evidenceSources.slice(0, 2).map((s) => `${s.technique} Science Skill: ${s.description}`),
   ];
   const validationGap = project.validationGaps[0]?.description || 'No validation gap logged.';
   const missingReferences = ['Literature reference (publication-level)', 'Refinement or control sample reference'];
 
   const validationBoundary =
     claim === 'supported_assignment'
-      ? 'Phase/evidence supported within demo scope; publication-level purity requires refinement.'
+      ? 'Skill-derived scientific evidence supports phase assignment under XRD/XPS/Raman boundaries. Definitive phase purity requires complementary evidence.'
       : claim === 'validation_limited'
-        ? 'Claim is supported only within current evidence; additional validation required before report.'
-        : 'Claim requires validation; further experiments or references needed.';
+        ? 'Skill-derived scientific evidence is validation-limited. Complementary evidence required to resolve phase matching.'
+        : 'Validation-limited scientific claim. Active science skills require complementary evidence and references.';
 
   return {
     title: project.notebook.title,
@@ -697,10 +697,10 @@ function buildNotebookEntry(project: RawDemoProject, claim: ClaimStatus): DemoNo
     validationGap,
     decision,
     reportDraft: readiness >= 80
-      ? `${reportDraftBase} Report-ready with validation boundaries noted.`
+      ? `${reportDraftBase} Draft report based on skill-derived scientific evidence. Material phase assignment is reference-supported with validation boundaries noted.`
       : readiness >= 50
-        ? `${reportDraftBase} Discussion-ready; additional validation recommended before publication.`
-        : `${reportDraftBase} Processing evidence; report draft pending additional data.`,
+        ? `${reportDraftBase} Discussion-ready draft based on validation-limited scientific claims. Active science skills require additional verification prior to formal report.`
+        : `${reportDraftBase} Draft compilation pending. Active science skills require complementary evidence to establish reference-supported indicators.`,
     missingReferences,
     claimStatus: claim,
     validationBoundary,
@@ -708,59 +708,59 @@ function buildNotebookEntry(project: RawDemoProject, claim: ClaimStatus): DemoNo
 }
 
 function buildAgentWorkflow(project: RawDemoProject, comp: DemoCrossTechniqueComparison): DemoAgentWorkflow {
-  const techniqueLabels = project.techniques.map((t) => t).join(', ');
+  const techniqueLabels = project.techniques.map((t) => `${t} Science Skill`).join(', ');
 
   const trace: DemoTraceEvent[] = [
     {
       stepNumber: 1,
-      label: 'Project loaded',
+      label: 'Initialize Project Scope',
       eventType: 'project_loaded',
       input: `Project: ${project.name}`,
-      reasoning: `Objective requires ${techniqueLabels} evidence review for ${project.material}.`,
-      output: `Evidence scope: ${techniqueLabels}.`,
+      reasoning: `Initialize core scientific context. Mapping objective to required validation paths and referencing active Science Skills.`,
+      output: `Active skills: ${techniqueLabels}.`,
       boundaryImpact: 'Initial evidence scope defined; claim boundary initialized.',
     },
     {
       stepNumber: 2,
-      label: 'Evidence selected',
+      label: 'Activate Technique Skills',
       eventType: 'evidence_selected',
-      input: project.evidenceSources.map((s) => s.datasetLabel).join('; '),
-      reasoning: 'Agent selected project-linked datasets for structured evidence extraction.',
+      input: project.evidenceSources.map((s) => `${s.technique} Science Skill dataset`).join('; '),
+      reasoning: 'Activating skill-derived evidence pipelines. Loading XRD, XPS, FTIR, and Raman reference patterns for material assignment.',
       output: `${project.evidenceSources.length} datasets loaded.`,
-      boundaryImpact: 'Evidence layers available for reasoning.',
+      boundaryImpact: 'Skill-derived scientific evidence layers loaded into active memory.',
     },
   ];
 
   comp.matrix.forEach((row, i) => {
     trace.push({
       stepNumber: 3 + i,
-      label: `${row.techniqueLabel} — ${row.role}`,
+      label: `${row.techniqueLabel} Science Skill`,
       eventType: row.supportsClaim === 'yes' ? 'candidate_matched' : 'feature_extracted',
-      input: `${row.techniqueLabel} evidence review`,
-      reasoning: row.keyFinding,
-      output: row.supportsClaim === 'yes' ? 'Supports claim.' : row.supportsClaim === 'partial' ? 'Partial support.' : 'Does not support / not applicable.',
+      input: `${row.techniqueLabel} Science Skill execution`,
+      reasoning: `${row.keyFinding} Analyzed via skill-derived pattern matching.`,
+      output: row.supportsClaim === 'yes' ? 'Reference-supported phase indication.' : row.supportsClaim === 'partial' ? 'Validation-limited scientific claim.' : 'Complementary evidence required.',
       boundaryImpact: row.limitation,
     });
   });
 
   trace.push({
     stepNumber: 3 + comp.matrix.length,
-    label: 'Validation gap identified',
+    label: 'Cross-Technique Fusion Skill',
     eventType: 'claim_boundary_updated',
-    input: 'Cross-technique comparison summary',
-    reasoning: comp.validationGap,
-    output: 'Claim boundary updated with validation limits.',
+    input: 'Evidence fusion and consistency check',
+    reasoning: 'Fusing multi-tech evidence layers. Evaluating consistency of bulk phase, surface chemistry, and lattice mode signals.',
+    output: 'Cross-technique evidence fusion map generated; validation-limited claims resolved.',
     boundaryImpact: comp.validationGap,
   });
 
   trace.push({
     stepNumber: 4 + comp.matrix.length,
-    label: 'Next action generated',
+    label: 'Validation Boundary Skill',
     eventType: 'next_action_generated',
-    input: 'Cross-technique comparison + missing references',
-    reasoning: 'Agent identified missing references and prioritized next validation action.',
+    input: 'Evidence matrix + reference gaps',
+    reasoning: 'Analyzing remaining validation gaps. Identifying missing references and required control measurements to move from validation-limited claim to reference-supported indication.',
     output: comp.recommendedNextAction,
-    boundaryImpact: 'Sends validation-aware claim and next action to notebook.',
+    boundaryImpact: `Validation-limited action: ${comp.recommendedNextAction}`,
   });
 
   const supported = comp.matrix.filter((r) => r.supportsClaim === 'yes').map((r) => `${r.techniqueLabel} supports: ${r.keyFinding}`);
@@ -793,10 +793,10 @@ function buildExperimentHistory(project: RawDemoProject, comp: DemoCrossTechniqu
     projectTitle: title,
     timestampLabel: project.createdDate,
     eventType: 'dataset_loaded',
-    title: `${project.techniques[0]} dataset loaded`,
+    title: `${project.techniques[0]} Science Skill initialized`,
     techniqueId: primaryTech,
-    summary: `Loaded primary ${project.techniques[0]} dataset for ${project.material}.`,
-    boundaryImpact: 'Evidence scope initialized.',
+    summary: `Activated primary ${project.techniques[0]} Science Skill for ${project.material} dataset processing.`,
+    boundaryImpact: 'Skill-derived evidence layer initialized.',
   });
 
   events.push({
@@ -805,10 +805,10 @@ function buildExperimentHistory(project: RawDemoProject, comp: DemoCrossTechniqu
     projectTitle: title,
     timestampLabel: project.createdDate,
     eventType: 'parameter_checked',
-    title: 'Experimental parameters reviewed',
+    title: 'Science Skill parameters locked',
     techniqueId: primaryTech,
-    summary: `Confirmed deterministic parameters for ${project.techniques[0]} evidence processing.`,
-    boundaryImpact: 'Parameters locked for reproducible analysis.',
+    summary: `Reviewed and locked experimental parameters for ${project.techniques[0]} Science Skill execution.`,
+    boundaryImpact: 'Skill processing constraints established.',
   });
 
   events.push({
@@ -817,10 +817,10 @@ function buildExperimentHistory(project: RawDemoProject, comp: DemoCrossTechniqu
     projectTitle: title,
     timestampLabel: project.lastUpdated,
     eventType: 'evidence_processed',
-    title: 'Evidence processed',
+    title: 'Skill-derived evidence generated',
     techniqueId: primaryTech,
-    summary: project.summary,
-    boundaryImpact: 'Evidence summary available for reasoning and notebook handoff.',
+    summary: `Executed ${project.techniques[0]} Science Skill: ${project.summary}`,
+    boundaryImpact: 'Skill-derived scientific evidence logged to workspace.',
   });
 
   events.push({
@@ -829,10 +829,10 @@ function buildExperimentHistory(project: RawDemoProject, comp: DemoCrossTechniqu
     projectTitle: title,
     timestampLabel: project.lastUpdated,
     eventType: 'validation_gap_identified',
-    title: 'Validation gap identified',
+    title: 'Validation Boundary Skill checked',
     techniqueId: primaryTech,
-    summary: comp.validationGap,
-    boundaryImpact: 'Claim boundary recorded; validation action queued.',
+    summary: `Executed Validation Boundary Skill to detect verification gaps. Current: ${comp.validationGap}`,
+    boundaryImpact: 'Validation-limited scientific claim boundaries set.',
   });
 
   events.push({
@@ -841,9 +841,9 @@ function buildExperimentHistory(project: RawDemoProject, comp: DemoCrossTechniqu
     projectTitle: title,
     timestampLabel: project.lastUpdated,
     eventType: 'cross_tech_review',
-    title: 'Cross-technique comparison reviewed',
+    title: 'Cross-Technique Fusion Skill executed',
     techniqueId: 'multi',
-    summary: comp.agreementSummary,
+    summary: `Executed Cross-Technique Fusion Skill to evaluate agreement across ${project.techniques.join(', ')} channels: ${comp.agreementSummary}`,
     boundaryImpact: `Agreement level: ${comp.agreementLevel}.`,
   });
 
@@ -853,9 +853,9 @@ function buildExperimentHistory(project: RawDemoProject, comp: DemoCrossTechniqu
     projectTitle: title,
     timestampLabel: project.lastUpdated,
     eventType: 'notebook_entry_created',
-    title: 'Notebook entry created',
+    title: 'Notebook Evidence-to-Report Skill run',
     techniqueId: 'multi',
-    summary: `Draft notebook entry for ${title} prepared with validation-aware claim.`,
+    summary: `Drafted notebook entry using Evidence-to-Report Skill. Preserved skill-derived scientific evidence boundaries.`,
     boundaryImpact: 'Notebook preserves claim boundary and missing references.',
   });
 
@@ -865,11 +865,11 @@ function buildExperimentHistory(project: RawDemoProject, comp: DemoCrossTechniqu
     projectTitle: title,
     timestampLabel: project.lastUpdated,
     eventType: 'report_draft_updated',
-    title: 'Report draft updated',
+    title: 'Evidence-to-Report Skill finalized',
     techniqueId: 'multi',
     summary: project.reportReadiness.exportReady
-      ? `Report draft for ${title} is ready with validation boundary noted.`
-      : `Report draft for ${title} updated; validation limits still control export readiness.`,
+      ? `Generated final report draft with skill-derived scientific evidence and validation boundaries.`
+      : `Draft report updated. Validation boundaries limit export readiness.`,
     boundaryImpact: project.reportReadiness.label,
   });
 
