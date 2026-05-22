@@ -60,6 +60,7 @@ from xrd_engine.services.reference_db_service import (
     match_peaks,
 )
 from xrd_engine.services.xrd_engine import XRDSignalProcessor
+from api.evidence_router import router as evidence_router
 
 logger = logging.getLogger("difaryx.xrd.gateway")
 
@@ -102,6 +103,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register the Evidence Registry router
+app.include_router(evidence_router)
 
 
 # ============================================================================

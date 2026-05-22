@@ -1,11 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  AlertTriangle,
   ArrowRight,
   CheckCircle2,
   ChevronDown,
-  Circle,
   Copy,
   Database,
   Download,
@@ -41,6 +39,7 @@ import {
   type TechniqueWorkspaceConfig,
 } from '../../data/techniqueWorkspaceContent';
 import { ParameterControlField } from './ParameterControlField';
+import { TechniqueEvidenceRail } from './TechniqueEvidenceRail';
 import {
   getAnalysisSession,
   getStatusLabel,
@@ -184,20 +183,6 @@ function statusBadgeClass(status: string) {
     return 'border-red-200 bg-red-50 text-red-700';
   }
   return 'border-slate-200 bg-slate-50 text-slate-700';
-}
-
-function pipelineStateClass(state: PipelineStepState) {
-  if (state === 'done') return 'text-emerald-700';
-  if (state === 'active') return 'text-blue-700';
-  if (state === 'optional') return 'text-slate-500';
-  return 'text-amber-700';
-}
-
-function pipelineStateIcon(state: PipelineStepState) {
-  if (state === 'done') return <CheckCircle2 size={12} className="text-emerald-600" />;
-  if (state === 'active') return <Play size={12} className="text-blue-600" />;
-  if (state === 'optional') return <Circle size={12} className="text-slate-400" />;
-  return <AlertTriangle size={12} className="text-amber-600" />;
 }
 
 function formatStateLabel(state: PipelineStepState) {
@@ -1679,159 +1664,31 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
         </div>
       )}
 
-      {isUploadedContext && (
-        <div className="shrink-0 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-950">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="min-w-0">
-              <span className="font-bold">User-uploaded evidence loaded.</span>
-              <span className="ml-1">
-                {datasetLabel} / source=user_uploaded / {quickAnalysisSession?.processingState ?? datasetStatus}
-              </span>
-              {nextIntent && <span className="ml-1 font-semibold">Next: {nextIntent}</span>}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              <Link to={agentPath} className="inline-flex h-7 items-center rounded-md border border-emerald-300 bg-white px-2 text-[10px] font-bold text-emerald-800 hover:bg-emerald-100">
-                Send to Agent
-              </Link>
-              <Link to={notebookPath} className="inline-flex h-7 items-center rounded-md border border-emerald-300 bg-white px-2 text-[10px] font-bold text-emerald-800 hover:bg-emerald-100">
-                Send to Notebook
-              </Link>
-              <Link to={reportPath} className="inline-flex h-7 items-center rounded-md border border-emerald-300 bg-white px-2 text-[10px] font-bold text-emerald-800 hover:bg-emerald-100">
-                Create Report
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <aside className="flex w-[260px] shrink-0 flex-col overflow-hidden border-r border-border bg-surface">
-          <div className="space-y-2 border-b border-border px-3 py-3">
-            <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Dataset</label>
-              <div className="mt-1 rounded border border-border bg-background px-2 py-1.5">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-text-main">
-                  <Database size={13} className="shrink-0 text-primary" />
-                  <span className="truncate">{formatChemicalFormula(datasetLabel)}</span>
-                </div>
-                <p className="mt-0.5 truncate text-[10px] text-text-muted">
-                  {quickAnalysisSession?.analysisId || evidenceSource?.datasetId || getTraceId(project, technique)}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-1.5">
-              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusBadgeClass(datasetStatus)}`}>
-                Evidence {datasetStatus}
-              </span>
-              {isQuickMode && (
-                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-                  Project: Not attached
-                </span>
-              )}
-              {!isQuickMode && !isUploadedContext && !project && (
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-700">
-                  No project linked
-                </span>
-              )}
-              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusBadgeClass(processingStateLabel)}`}>
-                {processingStateLabel}
-              </span>
-              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${getRuntimeBadgeClass(runtimeContext)}`}>
-                {getRuntimeBadgeLabel(runtimeContext, 'permission')}
-              </span>
-              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusBadgeClass(saveStateLabel)}`}>
-                {saveStateLabel}
-              </span>
-            </div>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-            <div className="mb-2 flex items-center justify-between">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-primary">Processing Pipeline</p>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={sessionState.autoMode}
-                onClick={toggleAutoMode}
-                className={`inline-flex h-5 items-center rounded-full px-1 text-[9px] font-bold transition-colors ${
-                  sessionState.autoMode ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
-                }`}
-              >
-                {sessionState.autoMode ? 'Auto' : 'Manual'}
-              </button>
-            </div>
-
-            <div className="rounded border border-border bg-background">
-              {config.pipeline.map((step, index) => {
-                const state = sessionState.pipelineStates[step.id] ?? 'pending';
-                return (
-                  <div key={step.id} className="flex items-center gap-2 border-b border-border/60 px-2 py-1.5 last:border-b-0">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-700">
-                      {index + 1}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-text-main">{step.label}</span>
-                    <span className={`shrink-0 text-[9px] font-bold uppercase ${pipelineStateClass(state)}`}>
-                      {formatStateLabel(state)}
-                    </span>
-                    {pipelineStateIcon(state)}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="mt-3 rounded border border-blue-100 bg-blue-50/70 p-2">
-              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-blue-700">
-                <Lock size={12} />
-                Processing State
-              </div>
-              <p className="mt-1 text-[11px] leading-relaxed text-blue-900">
-                {project
-                  ? formatChemicalFormula(`${project.title}: ${project.context.sampleDescription}`)
-                  : 'No project linked. Parameters and processing log are preserved locally for this session.'}
-              </p>
-              <p className="mt-1 text-[10px] text-blue-800">
-                Last processed: {sessionState.lastProcessedLabel}
-              </p>
-            </div>
-          </div>
-
-          <div className="shrink-0 space-y-1.5 border-t border-border bg-surface px-3 py-3">
-            <button
-              type="button"
-              onClick={saveSession}
-              className="flex h-8 w-full items-center justify-between rounded border border-border px-2.5 text-[11px] font-semibold text-text-main transition-colors hover:bg-surface-hover"
-            >
-              {isQuickMode ? 'Save Quick Session' : 'Save Processing Result'} <Save size={13} />
-            </button>
-            {isQuickMode && (
-              <Link
-                to="/workspace"
-                className="flex h-8 w-full items-center justify-between rounded border border-amber-300 bg-amber-50 px-2.5 text-[11px] font-semibold text-amber-800 transition-colors hover:bg-amber-100"
-              >
-                Attach to Project <Layers size={13} />
-              </Link>
-            )}
-            <Link
-              to={notebookPath}
-              className="flex h-8 w-full items-center justify-between rounded border border-border px-2.5 text-[11px] font-semibold text-text-main transition-colors hover:bg-surface-hover"
-            >
-              Notebook <FileText size={13} />
-            </Link>
-            <Link
-              to={agentPath}
-              className="flex h-8 w-full items-center justify-between rounded bg-primary px-2.5 text-[11px] font-semibold text-white transition-colors hover:bg-primary/90"
-            >
-              Run Agent <Sparkles size={13} />
-            </Link>
-            <Link
-              to={analysisReturnPath}
-              className="flex h-8 w-full items-center justify-between rounded border border-border px-2.5 text-[11px] font-semibold text-text-main transition-colors hover:bg-surface-hover"
-            >
-              Export <Download size={13} />
-            </Link>
-          </div>
-        </aside>
+        <TechniqueEvidenceRail
+          config={config}
+          dataset={{
+            fileName: datasetLabel,
+            sessionId: quickAnalysisSession?.analysisId || querySessionId || evidenceSource?.datasetId || getTraceId(project, technique),
+            source: runtimeContext.sourceMode,
+            parseState: datasetStatus,
+            processingState: quickAnalysisSession?.processingState ?? processingStateLabel,
+            projectAttachment: project ? formatChemicalFormula(project.title) : 'Not attached',
+            lifecycleState: quickAnalysisSession ? getStatusLabel(quickAnalysisSession.status) : quickStatusLabel || processingStateLabel,
+            permissionState: getRuntimeBadgeLabel(runtimeContext, 'permission'),
+            saveState: saveStateLabel,
+            nextIntent,
+          }}
+          pipelineStates={sessionState.pipelineStates}
+          autoMode={sessionState.autoMode}
+          onToggleAutoMode={toggleAutoMode}
+          onSaveSession={saveSession}
+          attachProjectPath="/workspace"
+          agentPath={agentPath}
+          notebookPath={notebookPath}
+          reportPath={reportPath}
+          exportPath={analysisReturnPath}
+        />
 
         <main
           className="min-w-0 flex-1 overflow-hidden bg-background p-2 transition-[width] duration-150"

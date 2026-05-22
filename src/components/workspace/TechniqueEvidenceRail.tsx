@@ -124,8 +124,8 @@ export function DatasetTab({
       </dl>
 
       <div className="flex flex-wrap gap-1.5">
-        {[dataset.parseState, dataset.processingState, dataset.lifecycleState, dataset.saveState].map((status) => (
-          <span key={status} className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusBadgeClass(status)}`}>
+        {[dataset.parseState, dataset.processingState, dataset.lifecycleState, dataset.saveState].map((status, index) => (
+          <span key={`${status}-${index}`} className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusBadgeClass(status)}`}>
             {status}
           </span>
         ))}
