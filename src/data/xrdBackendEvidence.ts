@@ -13,11 +13,12 @@
  * stay well within localStorage limits.
  */
 
-import type { XRDNormalizedResult } from '../types/xrdBackend';
+import type { ScientificEvidenceObject, XRDNormalizedResult } from '../types/xrdBackend';
 
 // ── Storage key ─────────────────────────────────────────────────────
 
 const XRD_BACKEND_EVIDENCE_KEY = 'difaryx-local:xrd-backend-evidence';
+const MAX_STORED_SCIENTIFIC_EVIDENCE_BYTES = 48_000;
 
 // ── Persisted shape ─────────────────────────────────────────────────
 
@@ -43,6 +44,21 @@ export interface XRDBackendEvidenceRecord {
   isPhaseMatched: boolean;
   /** Number of residual points available (full array excluded for size). */
   yResidualCount: number;
+  /** Compact skill handoff metadata persisted even when the full object is too large. */
+  scientificEvidenceSummary?: XRDSkillEvidenceSummary;
+  /** Full JSON-safe skill evidence when it remains small enough for localStorage. */
+  scientificEvidenceObject?: ScientificEvidenceObject;
+}
+
+export interface XRDSkillEvidenceSummary {
+  evidenceId: string;
+  skillId: string;
+  skillLabel: string;
+  technique: string;
+  inputReference: string;
+  schemaVersion: string;
+  createdAt: string;
+  claimBoundary: 'validation-limited scientific claim';
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -74,6 +90,44 @@ function writeAll(records: XRDBackendEvidenceRecord[]): void {
   }
 }
 
+function makeScientificEvidenceSummary(
+  evidenceObject: ScientificEvidenceObject | undefined,
+): XRDSkillEvidenceSummary | undefined {
+  if (!evidenceObject) return undefined;
+
+  return {
+    evidenceId: evidenceObject.evidence_id,
+    skillId: evidenceObject.skill_id,
+    skillLabel: evidenceObject.skill_label,
+    technique: evidenceObject.technique,
+    inputReference: evidenceObject.input_reference,
+    schemaVersion: evidenceObject.schema_version,
+    createdAt: evidenceObject.created_at,
+    claimBoundary: 'validation-limited scientific claim',
+  };
+}
+
+function cloneSmallJsonSafeEvidenceObject(
+  evidenceObject: ScientificEvidenceObject | undefined,
+): ScientificEvidenceObject | undefined {
+  if (!evidenceObject) return undefined;
+
+  try {
+    const json = JSON.stringify(evidenceObject);
+    const byteLength = typeof TextEncoder === 'undefined'
+      ? json.length
+      : new TextEncoder().encode(json).byteLength;
+
+    if (byteLength > MAX_STORED_SCIENTIFIC_EVIDENCE_BYTES) {
+      return undefined;
+    }
+
+    return JSON.parse(json) as ScientificEvidenceObject;
+  } catch {
+    return undefined;
+  }
+}
+
 // ── Public API ──────────────────────────────────────────────────────
 
 /**
@@ -88,6 +142,8 @@ export function saveXrdBackendEvidenceResult(
   fileName?: string,
 ): XRDBackendEvidenceRecord {
   const effectiveProjectId = projectId?.trim() || '__unassigned__';
+  const scientificEvidenceSummary = makeScientificEvidenceSummary(result.scientificEvidenceObject);
+  const scientificEvidenceObject = cloneSmallJsonSafeEvidenceObject(result.scientificEvidenceObject);
 
   const record: XRDBackendEvidenceRecord = {
     projectId: effectiveProjectId,
@@ -104,6 +160,8 @@ export function saveXrdBackendEvidenceResult(
     phaseSummary: result.phaseSummary,
     isPhaseMatched: result.isPhaseMatched,
     yResidualCount: result.yResidual?.length ?? 0,
+    ...(scientificEvidenceSummary ? { scientificEvidenceSummary } : {}),
+    ...(scientificEvidenceObject ? { scientificEvidenceObject } : {}),
   };
 
   const existing = readAll();

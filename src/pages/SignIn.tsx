@@ -120,10 +120,10 @@ export default function SignIn() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-slate-900">
+    <div className="min-h-screen overflow-y-auto bg-white text-slate-900">
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.08),transparent_34%),linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)]" />
 
-      <main className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-8">
+      <main className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 pb-8 pt-6 sm:pb-10 sm:pt-8">
         <Link
           to="/"
           className="inline-flex w-fit items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-2 shadow-sm hover:border-blue-200"
@@ -135,7 +135,7 @@ export default function SignIn() {
           />
         </Link>
 
-        <div className="flex flex-1 items-center justify-center py-10">
+        <div className="flex flex-1 items-start justify-center py-8 sm:items-center sm:py-10">
           <div className="w-full max-w-md">
             <div className="mb-7 text-center">
               <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-blue-600">

@@ -25,6 +25,7 @@ import {
   getNotebookEntry,
   normalizeNotebookTemplateMode,
   refineDiscussionFromProcessing,
+  type NotebookEntry,
   type NotebookTemplateMode,
 } from '../data/workflowPipeline';
 import { exportDemoArtifact, type DemoExportFormat, type DemoExportSection } from '../utils/demoExport';
@@ -89,6 +90,7 @@ function buildReportSections(
   bundle: EvidenceBundle | null,
   registryProject: ReturnType<typeof getRegistryProject>,
   reportSection: ReturnType<typeof createReportSectionFromNotebookEntry>,
+  xrdBackendEvidenceSummary?: NotebookEntry['xrdBackendEvidenceSummary'],
 ): DemoExportSection[] {
   const availableTechniques = snapshot.availableTechniques.join(', ') || 'No technique evidence linked';
   const pendingTechniques = snapshot.pendingTechniques.join(', ') || 'None';
@@ -129,6 +131,43 @@ function buildReportSections(
       })
     : ['Default processing parameters used for all techniques.'];
 
+  const xrdBackendEvidenceSection: DemoExportSection[] = xrdBackendEvidenceSummary
+    ? [
+        {
+          heading: 'Skill-derived Backend XRD Evidence',
+          lines: (() => {
+            const xbe = xrdBackendEvidenceSummary;
+            const snDisplay = Number.isFinite(xbe.snRatio) ? xbe.snRatio.toFixed(1) : 'N/A';
+            const baselineDisplay = Number.isFinite(xbe.baselineDeviation) ? xbe.baselineDeviation.toFixed(3) : 'N/A';
+            const savedDate = new Date(xbe.savedAt);
+            const savedDisplay = Number.isNaN(savedDate.getTime()) ? xbe.savedAt || 'N/A' : savedDate.toISOString();
+
+            return [
+              `Detected peak count: ${xbe.detectedPeakCount}.`,
+              `Fitted peak count: ${xbe.fittedPeakCount}.`,
+              `Signal-to-noise ratio: ${snDisplay}.`,
+              `Baseline deviation: ${baselineDisplay}.`,
+              `Peak resolution: ${xbe.peakResolution ?? 'N/A'}.`,
+              `Reference-supported phase indication: ${xbe.primaryPhase ?? 'N/A'}.`,
+              `Matched peak count: ${xbe.matchedPeakCount}.`,
+              `Phase summary: ${xbe.phaseSummary ?? 'N/A'}.`,
+              `Evidence saved: ${savedDisplay}.`,
+              ...(xbe.scientificEvidenceSummary
+                ? [
+                    'Scientific evidence object received.',
+                    `Skill: ${xbe.scientificEvidenceSummary.skillLabel}.`,
+                    `Evidence ID: ${xbe.scientificEvidenceSummary.evidenceId}.`,
+                    `Input reference: SHA-256 ${xbe.scientificEvidenceSummary.inputReference}.`,
+                    `Claim boundary: ${xbe.scientificEvidenceSummary.claimBoundary}.`,
+                  ]
+                : []),
+              xbe.caveat || 'Phase purity requires reference validation and/or complementary evidence.',
+            ];
+          })(),
+        },
+      ]
+    : [];
+
   return [
     {
       heading: 'Executive Summary',
@@ -152,7 +191,7 @@ function buildReportSections(
       ],
     },
     {
-      heading: 'Evidence Bundle',
+      heading: 'Skill-derived Evidence Bundle',
       lines: bundle
         ? [
             ...(bundle.lifecycleState === 'preview' ? ['Evidence package preview (not finalized).'] : []),
@@ -167,7 +206,7 @@ function buildReportSections(
         : ['No evidence package created yet.'],
     },
     {
-      heading: 'Interpretation',
+      heading: 'Skill-derived Scientific Interpretation',
       lines: snapshot.sourceMode === 'user_uploaded'
         ? [
             snapshot.evidenceEntries[0]?.support ?? 'Uploaded evidence is available, but bounded interpretation remains pending.',
@@ -177,11 +216,11 @@ function buildReportSections(
         : reportSection.lines.length ? reportSection.lines : [registryProject.notebook.interpretation],
     },
     {
-      heading: 'Validation Boundary',
+      heading: 'Validation-limited Claim Boundaries',
       lines: claimBoundaryLines.length ? claimBoundaryLines : [registryProject.notebook.validationBoundary],
     },
     {
-      heading: 'Validation Gap',
+      heading: 'Active Science Skill Gaps',
       lines: [...validationLines, ...bundleValidationLines].length
         ? [...new Set([...validationLines, ...bundleValidationLines])]
         : ['No open validation gaps are registered for this project.'],
@@ -195,7 +234,7 @@ function buildReportSections(
       lines: parameterProvenanceLines,
     },
     {
-      heading: 'Appendix / Provenance',
+      heading: 'Appendix / Worktree Provenance',
       lines: [
         `Notebook entry: ${reportSection.notebookEntryId}`,
         `Source: ${reportSection.sourceLabel}`,
@@ -208,6 +247,7 @@ function buildReportSections(
         ...registryProject.experimentHistory.map((event) => `${event.timestampLabel}: ${event.title} - ${event.summary}`),
       ],
     },
+    ...xrdBackendEvidenceSection,
   ];
 }
 
@@ -301,7 +341,7 @@ function UploadedReportContext({ routeContext }: { routeContext: EvidenceRouteCo
   const workspacePath = `/workspace/${technique}?mode=quick${evidenceQuery ? `&${evidenceQuery}` : ''}`;
   const reportSections: DemoExportSection[] = [
     {
-      heading: 'Uploaded Evidence Context',
+      heading: 'Uploaded Scientific Evidence Context',
       lines: [
         `Dataset: ${dataset?.fileName ?? snapshot.sampleIdentity}`,
         `Source: user_uploaded`,
@@ -309,7 +349,7 @@ function UploadedReportContext({ routeContext }: { routeContext: EvidenceRouteCo
       ],
     },
     {
-      heading: 'Evidence Summary',
+      heading: 'Skill-derived Evidence Summary',
       lines: [snapshot.evidenceEntries[0]?.support ?? 'Uploaded evidence is available as metadata-only context.'],
     },
     {
@@ -324,7 +364,7 @@ function UploadedReportContext({ routeContext }: { routeContext: EvidenceRouteCo
       ],
     },
     {
-      heading: 'Validation Boundary',
+      heading: 'Validation-limited Claim Boundaries',
       lines: snapshot.claimBoundary.requiresValidation.length
         ? snapshot.claimBoundary.requiresValidation
         : ['Uploaded evidence remains validation-limited until project-specific references are reviewed.'],
@@ -538,8 +578,8 @@ function ReportBuilderContent({ routeContext }: { routeContext: EvidenceRouteCon
     [workflowNotebookEntry],
   );
   const reportSections = useMemo(
-    () => buildReportSections(evidenceSnapshot, evidenceBundle, registryProject, workflowReportSection),
-    [evidenceSnapshot, evidenceBundle, registryProject, workflowReportSection],
+    () => buildReportSections(evidenceSnapshot, evidenceBundle, registryProject, workflowReportSection, workflowNotebookEntry?.xrdBackendEvidenceSummary),
+    [evidenceSnapshot, evidenceBundle, registryProject, workflowReportSection, workflowNotebookEntry?.xrdBackendEvidenceSummary],
   );
   const reportTemplate = NOTEBOOK_TEMPLATES[templateMode];
   const reportStatus =

@@ -81,7 +81,7 @@ import {
 import { runXrdPhaseIdentificationAgent } from '../../agents/xrdAgent/runner';
 import { getXrdProcessingParams, getXrdParameterSnapshot } from '../../utils/xrdParameterAdapter';
 import {
-  processXrdSignal,
+  processXrdSkillEvidence,
   checkXrdBackendHealth,
   XRDBackendError,
   type XRDHealthStatus,
@@ -1070,7 +1070,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
             setXrdBackendLoading(true);
             setXrdBackendError(null);
             setXrdBackendSaved(false);
-            processXrdSignal({
+            processXrdSkillEvidence({
               x: uploadedRun.points.map((p) => p.x),
               y: uploadedRun.points.map((p) => p.y),
             })
@@ -2077,6 +2077,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
                 graphData={graphData}
                 datasetStatus={datasetStatus}
                 project={project}
+                isUploadedContext={isUploadedContext}
                 quickSession={quickAnalysisSession}
                 xrdBackendEnabled={isXrdBackendEnabled}
                 xrdBackendHealth={xrdBackendHealth}
@@ -2147,6 +2148,7 @@ function EvidencePanel({
   graphData,
   datasetStatus,
   project,
+  isUploadedContext,
   quickSession,
   xrdBackendEnabled,
   xrdBackendHealth,
@@ -2161,6 +2163,7 @@ function EvidencePanel({
   graphData: DemoFocusedEvidenceSource['graphData'] | undefined;
   datasetStatus: string;
   project: RegistryProject | null;
+  isUploadedContext: boolean;
   quickSession: AnalysisSession | null;
   xrdBackendEnabled: boolean;
   xrdBackendHealth: XRDHealthStatus | null;
@@ -2169,14 +2172,75 @@ function EvidencePanel({
   xrdBackendError: string | null;
   xrdBackendSaved: boolean;
 }) {
+  const evidenceTitle = focusedEvidence?.title
+    || (isUploadedContext && (quickSession || graphData?.data?.length)
+      ? `${config.label} uploaded evidence linked`
+      : `${config.label} evidence not linked`);
+
+  const activeSkillLabel = config.id === 'xrd'
+    ? 'XRD Science Skill'
+    : config.id === 'xps'
+      ? 'XPS Science Skill'
+      : config.id === 'ftir'
+        ? 'FTIR Science Skill'
+        : config.id === 'raman'
+          ? 'Raman Science Skill'
+          : `${config.label} Science Skill`;
+
+  let skillInputs = 'Raw technique data';
+  let skillOutputs = 'Skill-derived evidence';
+  let skillPurpose = config.purpose;
+
+  if (config.id === 'xrd') {
+    skillInputs = 'Raw 1D diffraction pattern (.raw, .xy)';
+    skillOutputs = 'Skill-derived peak positions & reference matching';
+    skillPurpose = 'Processes bulk diffraction patterns to resolve phase indications.';
+  } else if (config.id === 'xps') {
+    skillInputs = 'Core-level photoemission spectra';
+    skillOutputs = 'Skill-derived chemical state and oxidation envelopes';
+    skillPurpose = 'Deconstructs surface photoemission envelopes into chemical assignments.';
+  } else if (config.id === 'ftir') {
+    skillInputs = 'Transmittance/absorbance IR spectra';
+    skillOutputs = 'Skill-derived vibrational bands and functional bonds';
+    skillPurpose = 'Analyzes IR transmittance patterns for functional groups.';
+  } else if (config.id === 'raman') {
+    skillInputs = 'Raman shift-intensity signal';
+    skillOutputs = 'Skill-derived vibrational modes and local symmetries';
+    skillPurpose = 'Identifies active vibrational modes to fingerprint local lattice structures.';
+  }
+
   return (
     <div className="space-y-2">
+      <Panel title="Scientific Skill Layer" icon={<Sparkles size={13} />}>
+        <div className="space-y-1.5 text-[11px]">
+          <div className="flex items-center justify-between">
+            <span className="font-bold text-primary">{activeSkillLabel}</span>
+            <span className="rounded bg-primary/10 px-1 py-0.5 text-[9px] font-bold text-primary uppercase">Active</span>
+          </div>
+          <p className="mt-1 text-[10px] leading-relaxed text-text-muted">{skillPurpose}</p>
+          <div className="mt-2 border-t border-border/40 pt-2 space-y-1">
+            <Metric label="Skill Input" value={skillInputs} />
+            <Metric label="Skill Output" value={skillOutputs} />
+            <Metric label="Claim Limit" value="Validation-limited claim" />
+          </div>
+          <div className="mt-2 border-t border-border/40 pt-2">
+            <div className="text-[9px] font-bold uppercase tracking-wider text-text-muted mb-1">Complementary Skills</div>
+            <div className="flex flex-wrap gap-1">
+              <span className="rounded border border-border/65 bg-background px-1.5 py-0.5 text-[9px] font-semibold text-text-muted">Cross-Technique Fusion Skill</span>
+              <span className="rounded border border-border/65 bg-background px-1.5 py-0.5 text-[9px] font-semibold text-text-muted">Validation Boundary Skill</span>
+              <span className="rounded border border-border/65 bg-background px-1.5 py-0.5 text-[9px] font-semibold text-text-muted">Evidence-to-Report Skill</span>
+            </div>
+          </div>
+        </div>
+      </Panel>
       <Panel title="Evidence Summary" icon={<Layers size={13} />}>
         <p className="text-xs font-bold text-text-main">
-          {formatChemicalFormula(focusedEvidence?.title || `${config.label} evidence not linked`)}
+          {formatChemicalFormula(evidenceTitle)}
         </p>
         <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
-          {formatChemicalFormula(focusedEvidence?.role || config.purpose)}
+          {formatChemicalFormula(isUploadedContext
+            ? 'Session-scoped uploaded evidence is available; project attachment remains separate.'
+            : focusedEvidence?.role || config.purpose)}
         </p>
       </Panel>
       <Panel title="Top Evidence / Features" icon={<Search size={13} />}>
@@ -2195,6 +2259,7 @@ function EvidencePanel({
       <Panel title="Reliability / Validation" icon={<CheckCircle2 size={13} />}>
         <div className="space-y-1 text-[11px] text-text-muted">
           <Metric label="Evidence status" value={datasetStatus} />
+          {isUploadedContext && <Metric label="Project" value="Not attached" />}
           <Metric label="Matched count" value={graphData?.peaks?.length ? `${graphData.peaks.length} markers` : focusedEvidence?.status || 'Not available'} />
           <Metric label="Validation need" value={project?.crossTechniqueComparison.validationGap || 'Attach to project for validation tracking'} />
           {quickSession?.qualityChecks.slice(0, 3).map((metric) => (
@@ -2250,6 +2315,21 @@ function EvidencePanel({
 
           {xrdBackendResult && (
             <>
+              {xrdBackendResult.scientificEvidenceObject && (
+                <Panel title="Scientific Evidence Object" icon={<CheckCircle2 size={13} />}>
+                  <div className="space-y-1 text-[11px]">
+                    <p className="font-bold text-emerald-700">Scientific evidence object received</p>
+                    <Metric label="Skill" value={xrdBackendResult.scientificEvidenceObject.skill_label} />
+                    <Metric label="Evidence ID" value={xrdBackendResult.scientificEvidenceObject.evidence_id} />
+                    <Metric
+                      label="Input reference"
+                      value={<span className="break-all">SHA-256 {xrdBackendResult.scientificEvidenceObject.input_reference}</span>}
+                    />
+                    <Metric label="Claim boundary" value="validation-limited scientific claim" />
+                  </div>
+                </Panel>
+              )}
+
               <Panel title="Backend Analysis Results" icon={<Search size={13} />}>
                 <div className="space-y-1 text-[11px]">
                   <Metric label="Detected peaks" value={String(xrdBackendResult.detectedPeakCount)} />

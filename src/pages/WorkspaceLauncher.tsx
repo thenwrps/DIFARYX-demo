@@ -40,20 +40,20 @@ import {
 const TECHNIQUE_ORDER: TechniqueId[] = ['xrd', 'xps', 'ftir', 'raman'];
 
 const workflowSteps = [
-  { label: 'Project', to: null },
-  { label: 'Evidence', to: '/workspace' },
-  { label: 'Technique Analysis', to: '/workspace' },
+  { label: 'Research Objective', to: null },
+  { label: 'Experimental Context', to: '/workspace' },
+  { label: 'Science Skills', to: '/workspace' },
   { label: 'Agent Reasoning', to: '/demo/agent' },
-  { label: 'Notebook', to: '/notebook' },
+  { label: 'Notebook Memory', to: '/notebook' },
   { label: 'Report', to: '/reports' },
 ];
 
 function techniqueLabel(id: TechniqueId) {
-  if (id === 'xrd') return 'XRD';
-  if (id === 'xps') return 'XPS';
-  if (id === 'ftir') return 'FTIR';
-  if (id === 'raman') return 'Raman';
-  return 'Multi-tech';
+  if (id === 'xrd') return 'XRD Science Skill';
+  if (id === 'xps') return 'XPS Science Skill';
+  if (id === 'ftir') return 'FTIR Science Skill';
+  if (id === 'raman') return 'Raman Science Skill';
+  return 'Cross-Technique Fusion Skill';
 }
 
 function techniqueFullName(id: TechniqueId) {
@@ -375,12 +375,13 @@ export default function WorkspaceLauncher() {
 
               <HubCard
                 icon={FlaskConical}
-                title="Technique Workspace"
-                purpose="Deep analysis of one selected technique in the current project."
+                title="Technique Workspaces (Science Skills)"
+                purpose="Configure and execute modular science skills to extract evidence from your datasets."
               >
                 <div className="grid grid-cols-2 gap-2">
                   {TECHNIQUE_ORDER.map((technique) => {
                     const available = availableTechniques.includes(technique);
+                    const labelShort = technique === 'xrd' ? 'XRD' : technique === 'xps' ? 'XPS' : technique === 'ftir' ? 'FTIR' : 'Raman';
                     return (
                       <Link
                         key={technique}
@@ -391,9 +392,9 @@ export default function WorkspaceLauncher() {
                             : 'border-border bg-slate-50 text-slate-500 hover:bg-slate-100'
                         }`}
                       >
-                        <span className="block font-bold">{techniqueLabel(technique)}</span>
+                        <span className="block font-bold">{labelShort} Skill</span>
                         <span className="mt-1 block text-[10px] leading-snug">
-                          {available ? 'Available' : 'Pending / required'}
+                          {available ? 'Skill Active' : 'Skill Pending'}
                         </span>
                       </Link>
                     );
@@ -450,7 +451,7 @@ export default function WorkspaceLauncher() {
               </div>
 
               <div className="mt-4">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Available techniques</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Active Science Skills</p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {availableTechniques.map((technique) => (
                     <span key={technique} className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/5 px-2 py-0.5 text-[10px] font-bold uppercase text-primary">
@@ -461,11 +462,11 @@ export default function WorkspaceLauncher() {
               </div>
 
               <div className="mt-4">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Missing required evidence</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Pending Science Skills</p>
                 <p className="mt-1 text-xs leading-relaxed text-text-main">
                   {missingTechniques.length > 0
                     ? missingTechniques.map(techniqueLabel).join(', ')
-                    : 'No required technique gap is visible in the selected demo scope.'}
+                    : 'All required technique skills are currently active in the selected demo scope.'}
                 </p>
               </div>
 

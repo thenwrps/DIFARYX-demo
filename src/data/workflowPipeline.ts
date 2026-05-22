@@ -97,6 +97,16 @@ export interface NotebookEntry {
     phaseSummary: string | null;
     savedAt: string;
     caveat: string;
+    scientificEvidenceSummary?: {
+      evidenceId: string;
+      skillId: string;
+      skillLabel: string;
+      technique: string;
+      inputReference: string;
+      schemaVersion: string;
+      createdAt: string;
+      claimBoundary: 'validation-limited scientific claim';
+    };
   };
 }
 

@@ -81,6 +81,29 @@ export interface XRDProcessResponse {
   [key: string]: unknown;
 }
 
+export interface ScientificEvidenceObject {
+  evidence_id: string;
+  schema_version: string;
+  skill_id: string;
+  skill_label: string;
+  technique: string;
+  input_reference: string;
+  processing_summary: string;
+  scientific_observations: string[];
+  claim_boundaries: string[];
+  validation_gaps: string[];
+  agent_ready_summary: string;
+  raw_result: Record<string, unknown>;
+  created_at: string;
+  [key: string]: unknown;
+}
+
+export interface XRDSkillProcessResponse {
+  legacy_result: XRDProcessResponse;
+  evidence_object: ScientificEvidenceObject;
+  [key: string]: unknown;
+}
+
 // ── Request payload ─────────────────────────────────────────────────
 
 export interface XRDBaselineConfig {
@@ -111,6 +134,7 @@ export interface XRDProcessPayload {
 
 export interface XRDNormalizedResult {
   raw: XRDProcessResponse;
+  scientificEvidenceObject?: ScientificEvidenceObject;
   detectedPeakCount: number;
   fittedPeakCount: number;
   snRatio: number;

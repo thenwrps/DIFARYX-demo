@@ -10,9 +10,11 @@
  */
 
 import type {
+  ScientificEvidenceObject,
   XRDProcessPayload,
   XRDProcessResponse,
   XRDNormalizedResult,
+  XRDSkillProcessResponse,
 } from '../types/xrdBackend';
 
 // ── Configuration ───────────────────────────────────────────────────
@@ -84,6 +86,47 @@ export function normalizeXrdBackendResponse(
     yResidual: raw.y_residual ?? [],
     isPhaseMatched: !!phaseMatch,
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasStringList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function isXrdProcessResponse(value: unknown): value is XRDProcessResponse {
+  return isRecord(value)
+    && Array.isArray(value.x)
+    && Array.isArray(value.y_raw)
+    && Array.isArray(value.detected_peaks)
+    && Array.isArray(value.fitted_peaks)
+    && typeof value.sn_ratio === 'number'
+    && typeof value.baseline_deviation === 'number';
+}
+
+function isScientificEvidenceObject(value: unknown): value is ScientificEvidenceObject {
+  return isRecord(value)
+    && typeof value.evidence_id === 'string'
+    && typeof value.schema_version === 'string'
+    && typeof value.skill_id === 'string'
+    && typeof value.skill_label === 'string'
+    && typeof value.technique === 'string'
+    && typeof value.input_reference === 'string'
+    && typeof value.processing_summary === 'string'
+    && hasStringList(value.scientific_observations)
+    && hasStringList(value.claim_boundaries)
+    && hasStringList(value.validation_gaps)
+    && typeof value.agent_ready_summary === 'string'
+    && isRecord(value.raw_result)
+    && typeof value.created_at === 'string';
+}
+
+function isXrdSkillProcessResponse(value: unknown): value is XRDSkillProcessResponse {
+  return isRecord(value)
+    && isXrdProcessResponse(value.legacy_result)
+    && isScientificEvidenceObject(value.evidence_object);
 }
 
 // ── Processing ──────────────────────────────────────────────────────
@@ -175,5 +218,50 @@ export async function processXrdSignal(
       undefined,
       err,
     );
+  }
+}
+
+/**
+ * Prefer the XRD Scientific Skill endpoint and fall back to the legacy
+ * processor endpoint when an older or unavailable backend cannot serve it.
+ */
+export async function processXrdSkillEvidence(
+  payload: XRDProcessPayload,
+  options?: ProcessXrdSignalOptions,
+): Promise<XRDNormalizedResult> {
+  const baseUrl = options?.baseUrl ?? getBackendBaseUrl();
+  const timeoutMs = options?.timeoutMs ?? REQUEST_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(`${baseUrl}/skills/xrd/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        x: payload.x,
+        y: payload.y,
+        ...(payload.params ? { params: payload.params } : {}),
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new XRDBackendError(`XRD skill endpoint returned HTTP ${response.status}`, response.status);
+    }
+
+    const data: unknown = await response.json();
+    if (!isXrdSkillProcessResponse(data)) {
+      throw new XRDBackendError('XRD skill endpoint returned an unexpected response shape');
+    }
+
+    return {
+      ...normalizeXrdBackendResponse(data.legacy_result),
+      scientificEvidenceObject: data.evidence_object,
+    };
+  } catch {
+    return processXrdSignal(payload, options);
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

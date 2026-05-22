@@ -676,7 +676,7 @@ function UploadedNotebookContext({ routeContext }: { routeContext: EvidenceRoute
 
               <div className="mt-4 space-y-3">
                 <section className="rounded-md border border-border bg-white p-3">
-                  <h3 className="text-sm font-bold text-text-main">Evidence basis</h3>
+                  <h3 className="text-sm font-bold text-text-main">Skill-derived Evidence Basis</h3>
                   <p className="mt-2 text-sm leading-relaxed text-text-muted">
                     {snapshot.evidenceEntries[0]?.support ?? 'Uploaded evidence is available as metadata-only context until more signal features are detected.'}
                   </p>
@@ -2139,7 +2139,7 @@ ${approvalLedgerMarkdown}
                   </div>
                 </div>
                 <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-text-dim mb-1">Evidence Basis</div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-text-dim mb-1">Skill-derived Evidence Basis</div>
                   <div className="space-y-1">
                     {keyEvidenceItems.map((item) => (
                       <div key={item} className="flex items-start gap-2 rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-text-main">
@@ -2150,7 +2150,7 @@ ${approvalLedgerMarkdown}
                   </div>
                 </div>
                 <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-text-dim mb-1">Evidence Sources</div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-text-dim mb-1">Skill-derived Scientific Evidence Sources</div>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {hasMatchedNotebookData ? (
                       <>
@@ -2209,6 +2209,15 @@ ${approvalLedgerMarkdown}
                         <div className="mt-1.5 text-xs">
                           <span className="text-text-dim">Reference-supported phase indication:</span>{' '}
                           <span className="font-semibold text-text-main">{xbe.primaryPhase}</span>
+                        </div>
+                      )}
+                      {xbe.scientificEvidenceSummary && (
+                        <div className="mt-1.5 space-y-0.5 text-xs">
+                          <p className="font-semibold text-text-main">Scientific evidence object received</p>
+                          <p className="text-text-muted">Skill: {xbe.scientificEvidenceSummary.skillLabel}</p>
+                          <p className="break-all text-text-muted">Evidence ID: {xbe.scientificEvidenceSummary.evidenceId}</p>
+                          <p className="break-all text-text-muted">Input reference: SHA-256 {xbe.scientificEvidenceSummary.inputReference}</p>
+                          <p className="text-text-muted">Claim boundary: {xbe.scientificEvidenceSummary.claimBoundary}</p>
                         </div>
                       )}
                       {xbe.phaseSummary && (
@@ -2874,7 +2883,7 @@ ${approvalLedgerMarkdown}
             </section>
 
             <section className="space-y-3">
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-text-muted border-b border-border pb-2">Evidence Sources</h3>
+              <h3 className="text-sm font-semibold uppercase tracking-wider text-text-muted border-b border-border pb-2">Skill-derived Scientific Evidence Sources</h3>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {hasMatchedNotebookData ? projectNotebookContent.supportingData.map((item) => (
                   <div key={item.technique} className="rounded-lg border border-border bg-surface p-4">
