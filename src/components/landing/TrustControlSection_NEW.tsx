@@ -37,8 +37,7 @@ export default function TrustControlSection() {
     <section id="trust" ref={ref} className="scroll-mt-24 border-t border-slate-200 bg-white py-20">
       <div className="mx-auto max-w-[1280px] px-6 lg:px-8">
         <div className={`landing-reveal max-w-[900px] ${isVisible ? 'is-visible' : ''}`}>
-          <p className="text-[12px] font-semibold uppercase text-blue-700">Trust and control</p>
-          <h2 className="mt-4 text-[32px] font-semibold leading-tight text-slate-950 lg:text-[44px]">
+          <h2 className="text-[32px] font-semibold leading-tight text-slate-950 lg:text-[44px]">
             Trust through visible evidence, parameters, and reasoning
           </h2>
           <p className="mt-5 text-[16px] leading-8 text-slate-600">

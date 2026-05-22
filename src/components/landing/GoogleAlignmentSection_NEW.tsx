@@ -4,41 +4,41 @@ import { useLandingReveal } from './useLandingReveal';
 
 const infrastructureLayers = [
   {
-    title: 'Managed data direction',
-    desc: 'Versioned scientific datasets and source-linked evidence records.',
+    title: 'Versioned evidence layer',
+    desc: 'Scientific signals, derived artifacts, and provenance remain source-linked across runs.',
     Icon: Database,
   },
   {
-    title: 'Processing services',
-    desc: 'Technique-specific preprocessing and reviewable parameter execution.',
+    title: 'Reviewable processing services',
+    desc: 'Technique-specific preprocessing executes with parameters and evidence context intact.',
     Icon: Cpu,
   },
   {
-    title: 'Interpretation services',
-    desc: 'Evidence synthesis, uncertainty review, and report discussion support.',
+    title: 'Interpretation service layer',
+    desc: 'Evidence synthesis, uncertainty review, and report discussion stay separable and inspectable.',
     Icon: Sparkles,
   },
   {
-    title: 'Cloud execution path',
-    desc: 'Scalable job execution for multi-step characterization workflows.',
+    title: 'Scalable execution path',
+    desc: 'Multi-step characterization workflows can move into controlled service execution as load grows.',
     Icon: Network,
   },
 ];
 
-const googleCloudDirection = [
+const scalePath = [
   {
-    title: 'Storage',
-    detail: 'A future managed data layer can map signals and evidence artifacts to cloud storage patterns.',
+    title: 'Evidence storage',
+    detail: 'Source files, parameters, and report artifacts map cleanly to versioned storage and provenance records.',
     Icon: Cloud,
   },
   {
-    title: 'Compute',
-    detail: 'Processing services can evolve toward distributed execution for larger characterization workloads.',
+    title: 'Distributed compute',
+    detail: 'Processing tasks and workflow jobs can be isolated, queued, and scaled for larger characterization loads.',
     Icon: Cpu,
   },
   {
-    title: 'Runtime',
-    detail: 'Containerized interpretation and workflow services can support controlled deployment paths.',
+    title: 'Controlled runtime',
+    detail: 'Container-ready interpretation and workflow services support governed deployment and operational review.',
     Icon: BarChart3,
   },
 ];
@@ -50,12 +50,11 @@ export default function GoogleAlignmentSection() {
     <section id="roadmap" ref={ref} className="scroll-mt-24 border-t border-slate-200 bg-[#f6f8fc] py-20">
       <div className="mx-auto max-w-[1280px] px-6 lg:px-8">
         <div className={`landing-reveal max-w-[940px] ${isVisible ? 'is-visible' : ''}`}>
-          <p className="text-[12px] font-semibold uppercase text-blue-700">Architecture direction</p>
-          <h2 className="mt-4 text-[32px] font-semibold leading-tight text-slate-950 lg:text-[44px]">
-            Designed for scalable scientific workflow infrastructure
+          <h2 className="text-[32px] font-semibold leading-tight text-slate-950 lg:text-[44px]">
+            Reliable scientific workflow infrastructure designed to scale
           </h2>
           <p className="mt-5 text-[16px] leading-8 text-slate-600">
-            DIFARYX is designed to evolve from local deterministic workflows into scalable scientific infrastructure with managed data, processing, interpretation services, and cloud-based execution.
+            DIFARYX keeps scientific data, reviewable processing, interpretation services, and execution boundaries connected so deterministic local workflows can grow into larger multi-step characterization systems.
           </p>
         </div>
 
@@ -77,17 +76,17 @@ export default function GoogleAlignmentSection() {
 
         <div className={`landing-reveal mt-8 grid gap-6 border border-slate-200 bg-white p-6 shadow-[0_28px_82px_rgba(15,23,42,0.1)] lg:grid-cols-[minmax(280px,0.56fr)_1fr] ${isVisible ? 'is-visible' : ''}`}>
           <div>
-            <div className="text-[11px] font-semibold uppercase text-blue-700">Google Cloud alignment</div>
+            <div className="text-[11px] font-semibold uppercase text-blue-700">Scale path</div>
             <h3 className="mt-3 text-[24px] font-semibold leading-tight text-slate-950">
-              A scalable deployment direction, not a production-readiness claim
+              From local deterministic runs to controlled service deployment
             </h3>
             <p className="mt-4 text-[14px] leading-7 text-slate-600">
-              Google Cloud is an architecture direction for managed data, compute, and service execution as DIFARYX moves beyond its local deterministic demo workflow.
+              The architecture direction makes storage, compute, and runtime boundaries explicit, so repeatable scientific workflows can move into managed infrastructure without overstating current production maturity.
             </p>
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
-            {googleCloudDirection.map(({ title, detail, Icon }) => (
+            {scalePath.map(({ title, detail, Icon }) => (
               <article key={title} className="border border-slate-200 bg-slate-50 p-4">
                 <span className="flex h-9 w-9 items-center justify-center bg-slate-950 text-sky-100">
                   <Icon size={17} />

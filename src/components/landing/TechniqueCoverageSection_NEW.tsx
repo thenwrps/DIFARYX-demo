@@ -79,8 +79,7 @@ export default function TechniqueCoverageSection() {
     <section id="techniques" ref={ref} className="scroll-mt-24 border-t border-slate-200 bg-[#f6f8fc] py-20">
       <div className="mx-auto max-w-[1280px] px-6 lg:px-8">
         <div className={`landing-reveal max-w-[900px] ${isVisible ? 'is-visible' : ''}`}>
-          <p className="text-[12px] font-semibold uppercase text-blue-700">Technique-specific evidence</p>
-          <h2 className="mt-4 text-[32px] font-semibold leading-tight text-slate-950 lg:text-[44px]">
+          <h2 className="text-[32px] font-semibold leading-tight text-slate-950 lg:text-[44px]">
             Four characterization techniques, one evidence workflow
           </h2>
           <p className="mt-5 text-[16px] leading-8 text-slate-600">

@@ -79,8 +79,7 @@ export default function ProblemSection() {
       <div className="mx-auto max-w-[1280px] px-6 lg:px-8">
         <div className="grid gap-12 lg:grid-cols-[minmax(0,0.86fr)_minmax(520px,1fr)] lg:items-start">
           <div className={`landing-reveal ${isVisible ? 'is-visible' : ''}`}>
-            <p className="text-[12px] font-semibold uppercase text-blue-700">Fragmented experimental work</p>
-            <h2 className="mt-4 max-w-[620px] text-[32px] font-semibold leading-tight text-slate-950 lg:text-[44px]">
+            <h2 className="max-w-[620px] text-[32px] font-semibold leading-tight text-slate-950 lg:text-[44px]">
               The bottleneck is not data generation. The bottleneck is interpretation and workflow execution.
             </h2>
             <p className="mt-5 max-w-[610px] text-[16px] leading-8 text-slate-600">

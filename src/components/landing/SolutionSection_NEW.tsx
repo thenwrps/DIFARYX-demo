@@ -40,8 +40,7 @@ export default function SolutionSection() {
       <div className="mx-auto max-w-[1280px] px-6 lg:px-8">
         <div className="grid gap-12 lg:grid-cols-[minmax(0,0.9fr)_minmax(500px,1fr)]">
           <div className={`landing-reveal ${isVisible ? 'is-visible' : ''}`}>
-            <p className="text-[12px] font-semibold uppercase text-blue-700">Structured scientific context</p>
-            <h2 className="mt-4 text-[32px] font-semibold leading-tight text-slate-950 lg:text-[44px]">
+            <h2 className="text-[32px] font-semibold leading-tight text-slate-950 lg:text-[44px]">
               DIFARYX is a workflow intelligence system, not an isolated analyzer.
             </h2>
             <p className="mt-5 text-[16px] leading-8 text-slate-600">
