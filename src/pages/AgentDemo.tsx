@@ -929,6 +929,100 @@ function formatReviewStatus(status: string) {
   }
 }
 
+type XRDReferenceMatchV2SummaryForAgent = NonNullable<XRDBackendEvidenceRecord['referenceMatchV2Summary']>;
+
+const XRD_REFERENCE_CANDIDATE_DEFAULT_LIMITATIONS = [
+  'Candidate match is based on peak-position agreement.',
+  'Chemical identity requires composition-sensitive evidence.',
+  'Phase purity is outside this XRD-only candidate evidence.',
+];
+
+function isBlockedReferenceCandidatePhrase(value: string) {
+  const normalized = value.toLowerCase();
+  return (
+    (normalized.includes('confirmed') && normalized.includes('phase')) ||
+    (normalized.includes('confirmed') && normalized.includes('identity')) ||
+    (normalized.includes('identified') && normalized.includes(' as ')) ||
+    (normalized.includes('pure') && normalized.includes('phase')) ||
+    (normalized.includes('definitive') && normalized.includes('match'))
+  );
+}
+
+function safeReferenceCandidateText(value: string | undefined | null): string | null {
+  const normalized = value?.trim();
+  if (!normalized) return null;
+  return isBlockedReferenceCandidatePhrase(normalized) ? null : normalized;
+}
+
+function formatAgentNumber(value: number | undefined | null, digits = 2) {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : null;
+}
+
+function buildReferenceCandidateAgentEvidence(summary: XRDReferenceMatchV2SummaryForAgent) {
+  const primaryCandidate = summary.primaryCandidate;
+  const candidateLabel = safeReferenceCandidateText(primaryCandidate?.phaseLabel);
+  const formula = safeReferenceCandidateText(primaryCandidate?.formula);
+  const claimLevel = safeReferenceCandidateText(summary.claimLevel) ?? 'candidate evidence';
+  const referenceSet = safeReferenceCandidateText(summary.referenceSetId);
+  const score = formatAgentNumber(primaryCandidate?.score);
+  const coverage = formatAgentNumber(primaryCandidate?.coverageRatio);
+  const meanDelta = formatAgentNumber(primaryCandidate?.meanDeltaTwoTheta);
+  const matchedPeakCount = primaryCandidate?.matchedPeakCount;
+  const referencePeakCount = primaryCandidate?.referencePeakCount;
+  const matchedPeakRatio =
+    typeof matchedPeakCount === 'number' && Number.isFinite(matchedPeakCount)
+      ? `${matchedPeakCount}${typeof referencePeakCount === 'number' && Number.isFinite(referencePeakCount) ? `/${referencePeakCount}` : ''}`
+      : null;
+  const peakPreview = summary.matchedPeaksPreview
+    ?.slice(0, 5)
+    .map((peak) => {
+      const measured = formatAgentNumber(peak.measuredTwoTheta);
+      const reference = formatAgentNumber(peak.referenceTwoTheta);
+      const delta = formatAgentNumber(peak.deltaTwoTheta);
+      if (!measured || !reference || !delta) return null;
+      const hkl = safeReferenceCandidateText(peak.hkl);
+      return `${measured}->${reference} deg${hkl ? ` (${hkl})` : ''}, delta ${delta}`;
+    })
+    .filter((peak): peak is string => Boolean(peak));
+
+  const evidenceLines = [
+    `Reference-supported candidate evidence available: claim level ${claimLevel}${referenceSet ? ` using ${referenceSet}` : ''}.`,
+  ];
+
+  if (candidateLabel || formula) {
+    evidenceLines.push(
+      `Primary reference candidate: ${[candidateLabel, formula].filter(Boolean).join(' / ')}.`,
+    );
+  }
+
+  const scoringParts = [
+    score ? `score ${score}` : null,
+    coverage ? `coverage ${coverage}` : null,
+    matchedPeakRatio ? `${matchedPeakRatio} matched peaks` : null,
+    meanDelta ? `mean delta 2theta ${meanDelta}` : null,
+  ].filter(Boolean);
+
+  if (scoringParts.length > 0) {
+    evidenceLines.push(`Peak-level reference agreement: ${scoringParts.join(', ')}.`);
+  }
+
+  if (peakPreview && peakPreview.length > 0) {
+    evidenceLines.push(`Matched peak preview: ${peakPreview.join('; ')}.`);
+  }
+
+  const limitations = (summary.limitations?.length ? summary.limitations : XRD_REFERENCE_CANDIDATE_DEFAULT_LIMITATIONS)
+    .map((limitation) => safeReferenceCandidateText(limitation))
+    .filter((limitation): limitation is string => Boolean(limitation));
+
+  return {
+    evidenceLines,
+    limitations: limitations.length > 0 ? limitations : XRD_REFERENCE_CANDIDATE_DEFAULT_LIMITATIONS,
+    candidateLabel,
+    formula,
+    claimLevel,
+  };
+}
+
 import { formatChemicalFormula } from '../utils';
 import { buildAgentContext, type AgentContext, type WorkspaceParameters } from '../utils/agentContext';
 import { readLatestXrdBackendEvidenceResult, type XRDBackendEvidenceRecord } from '../data/xrdBackendEvidence';
@@ -1784,6 +1878,32 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
           `Scientific evidence object received from ${be.scientificEvidenceSummary.skillLabel}; evidence ID ${be.scientificEvidenceSummary.evidenceId}; input reference SHA-256 ${be.scientificEvidenceSummary.inputReference}; claim boundary: ${be.scientificEvidenceSummary.claimBoundary}.`,
         );
       }
+      if (be.referenceMatchV2Summary) {
+        const candidateEvidence = buildReferenceCandidateAgentEvidence(be.referenceMatchV2Summary);
+        backendBasis.push(...candidateEvidence.evidenceLines);
+        decision.limitations = [
+          ...decision.limitations,
+          ...candidateEvidence.limitations,
+          'Requires composition-sensitive evidence for stronger assignment.',
+        ];
+        decision.metrics = [
+          ...decision.metrics,
+          { label: 'Reference candidate', value: candidateEvidence.candidateLabel ?? 'Loaded', tone: 'violet' },
+          { label: 'Claim level', value: candidateEvidence.claimLevel, tone: 'amber' },
+        ];
+        decision.detailRows = [
+          ...decision.detailRows,
+          {
+            Claim: 'reference-candidate',
+            Review: candidateEvidence.claimLevel,
+            Evidence: candidateEvidence.candidateLabel
+              ? `${candidateEvidence.candidateLabel}${candidateEvidence.formula ? ` / ${candidateEvidence.formula}` : ''}`
+              : 'Candidate-level agreement',
+            Conflicts: 'Bounded',
+          },
+        ];
+        decision.decision = `${decision.decision} | Reference-supported candidate evidence is available at ${candidateEvidence.claimLevel}; composition-sensitive evidence is required for a stronger assignment.`;
+      }
 
       decision.basis = [...decision.basis, ...backendBasis];
 
@@ -2554,6 +2674,21 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
               <span>Backend XRD evidence loaded</span>
             </div>
           )}
+
+          {xrdBackendEvidence?.referenceMatchV2Summary && (() => {
+            const summary = xrdBackendEvidence.referenceMatchV2Summary;
+            const primaryCandidate = summary.primaryCandidate;
+            const candidateLabel = primaryCandidate?.phaseLabel ?? primaryCandidate?.formula ?? 'Reference candidate';
+            return (
+              <div
+                className="h-7 px-2 flex items-center gap-1 bg-blue-50 border border-blue-200 rounded text-[10px] font-semibold text-blue-700"
+                title={`Reference candidate evidence loaded: ${candidateLabel}; claim level ${summary.claimLevel}; candidate-level agreement only.`}
+              >
+                <Database size={10} />
+                <span>Reference candidate evidence loaded</span>
+              </div>
+            );
+          })()}
 
           <div className="flex-1" />
 
