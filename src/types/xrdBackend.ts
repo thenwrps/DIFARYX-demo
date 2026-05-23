@@ -8,6 +8,9 @@
 
 // ── Peak data ───────────────────────────────────────────────────────
 
+import type { XRDDatasetContext } from './xrdDatasetContext';
+import type { XRDParameters } from './xrdParameters';
+
 export interface XRDDetectedPeak {
   position: number;
   intensity: number;
@@ -179,10 +182,89 @@ export interface XRDProcessingParams {
   min_prominence?: number;
 }
 
+export interface XRDBackendDatasetContext {
+  sample_id?: string;
+  sample_name?: string;
+  material_class?: string;
+  batch_id?: string;
+  known_elements: string[];
+  expected_elements: string[];
+  excluded_elements: string[];
+  declared_phases: string[];
+  candidate_phase_ids: string[];
+  excluded_phase_ids: string[];
+  reference_source: string;
+  reference_set_id?: string;
+  identity_source: string;
+  identity_confidence: string;
+  [key: string]: unknown;
+}
+
+export interface XRDBackendGroupedParameters {
+  range: {
+    two_theta_min: number;
+    two_theta_max: number;
+  };
+  radiation: {
+    source: string;
+    wavelength_angstrom: number;
+  };
+  baseline: {
+    method: string;
+    lambda: number;
+    p: number;
+  };
+  smoothing: {
+    method: string;
+    window_size: number;
+    polynomial_order: number;
+  };
+  peak_detection: {
+    min_prominence: number;
+    min_distance_deg: number;
+    min_height_ratio: number;
+    max_peak_count: number;
+  };
+  peak_fitting: {
+    model: string;
+    fit_window_deg: number;
+    max_iterations: number;
+    calculate_crystallite_size: boolean;
+  };
+  reference_match: {
+    enabled: boolean;
+    match_mode: string;
+    reference_source: string;
+    reference_set_id: string;
+    candidate_phase_ids: string[];
+    tolerance_two_theta: number;
+    min_matched_peaks: number;
+    min_coverage_ratio: number;
+    min_score: number;
+    use_relative_intensity: boolean;
+    intensity_tolerance_ratio: number;
+    allow_unknown_search: boolean;
+    allow_identity_claim: false;
+    allow_phase_purity_claim: false;
+  };
+  boundary: {
+    enabled: boolean;
+    claim_mode: string;
+    allow_identity_claim: false;
+    allow_phase_purity_claim: false;
+    require_complementary_evidence: boolean;
+    require_reference_set_for_match: boolean;
+    require_sample_context_for_targeted_match: boolean;
+  };
+  [key: string]: unknown;
+}
+
 export interface XRDProcessPayload {
   x: number[];
   y: number[];
   params?: XRDProcessingParams;
+  datasetContext?: XRDDatasetContext;
+  parameters?: XRDParameters;
 }
 
 // ── Normalized frontend result ──────────────────────────────────────

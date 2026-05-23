@@ -807,6 +807,8 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
 
   // XRD Backend integration state (XRD workspace only)
   const isXrdBackendEnabled = technique === 'xrd';
+  const [xrdParameters, setXrdParameters] = useState<XRDParameters>(cloneDefaultXrdParameters);
+  const [xrdDatasetContext, setXrdDatasetContext] = useState<XRDDatasetContext>(createDefaultXrdDatasetContext);
   const [xrdBackendHealth, setXrdBackendHealth] = useState<XRDHealthStatus | null>(null);
   const [xrdBackendResult, setXrdBackendResult] = useState<XRDNormalizedResult | null>(null);
   const [xrdBackendLoading, setXrdBackendLoading] = useState(false);
@@ -1116,6 +1118,8 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
             processXrdSkillEvidence({
               x: uploadedRun.points.map((p) => p.x),
               y: uploadedRun.points.map((p) => p.y),
+              datasetContext: xrdDatasetContext,
+              parameters: xrdParameters,
             })
               .then((normalized) => {
                 setXrdBackendResult(normalized);
@@ -1460,6 +1464,10 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
   const resetParameters = () => {
     if (projectId) {
       resetParameterState(projectId, technique);
+    }
+    if (technique === 'xrd') {
+      setXrdParameters(cloneDefaultXrdParameters());
+      setXrdDatasetContext(createDefaultXrdDatasetContext());
     }
 
     setSessionState((prev) =>
@@ -2016,6 +2024,10 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
                 onSavePreset={savePreset}
                 processingStateLabel={processingStateLabel}
                 sharedOverrideCount={sharedOverrideCount}
+                xrdParameters={xrdParameters}
+                xrdDatasetContext={xrdDatasetContext}
+                onXrdParametersChange={setXrdParameters}
+                onXrdDatasetContextChange={setXrdDatasetContext}
               />
             )}
 
@@ -2393,6 +2405,10 @@ function ParametersPanel({
   onSavePreset,
   processingStateLabel,
   sharedOverrideCount,
+  xrdParameters,
+  xrdDatasetContext,
+  onXrdParametersChange,
+  onXrdDatasetContextChange,
 }: {
   config: TechniqueWorkspaceConfig;
   sessionState: WorkspaceSessionState;
@@ -2405,6 +2421,10 @@ function ParametersPanel({
   onSavePreset: () => void;
   processingStateLabel: string;
   sharedOverrideCount: number;
+  xrdParameters: XRDParameters;
+  xrdDatasetContext: XRDDatasetContext;
+  onXrdParametersChange: React.Dispatch<React.SetStateAction<XRDParameters>>;
+  onXrdDatasetContextChange: React.Dispatch<React.SetStateAction<XRDDatasetContext>>;
 }) {
   if (config.id === 'xrd') {
     return (
@@ -2418,6 +2438,10 @@ function ParametersPanel({
         onSavePreset={onSavePreset}
         processingStateLabel={processingStateLabel}
         sharedOverrideCount={sharedOverrideCount}
+        parameters={xrdParameters}
+        datasetContext={xrdDatasetContext}
+        onParametersChange={onXrdParametersChange}
+        onDatasetContextChange={onXrdDatasetContextChange}
       />
     );
   }
@@ -2550,6 +2574,10 @@ function XRDParametersPanel({
   onSavePreset,
   processingStateLabel,
   sharedOverrideCount,
+  parameters,
+  datasetContext,
+  onParametersChange,
+  onDatasetContextChange,
 }: {
   config: TechniqueWorkspaceConfig;
   sessionState: WorkspaceSessionState;
@@ -2560,18 +2588,16 @@ function XRDParametersPanel({
   onSavePreset: () => void;
   processingStateLabel: string;
   sharedOverrideCount: number;
+  parameters: XRDParameters;
+  datasetContext: XRDDatasetContext;
+  onParametersChange: React.Dispatch<React.SetStateAction<XRDParameters>>;
+  onDatasetContextChange: React.Dispatch<React.SetStateAction<XRDDatasetContext>>;
 }) {
-  const [parameters, setParameters] = useState<XRDParameters>(cloneDefaultXrdParameters);
-  const [datasetContext, setDatasetContext] = useState<XRDDatasetContext>(createDefaultXrdDatasetContext);
-  const [knownElementsInput, setKnownElementsInput] = useState('');
-  const [declaredPhasesInput, setDeclaredPhasesInput] = useState('');
-  const [candidatePhaseIdsInput, setCandidatePhaseIdsInput] = useState('');
-
   function updateParameterStage<TStage extends keyof XRDParameters>(
     stage: TStage,
     updates: Partial<XRDParameters[TStage]>,
   ) {
-    setParameters((current) => ({
+    onParametersChange((current) => ({
       ...current,
       [stage]: {
         ...current[stage],
@@ -2584,7 +2610,7 @@ function XRDParametersPanel({
     field: TKey,
     value: XRDDatasetContext[TKey],
   ) {
-    setDatasetContext((current) => ({
+    onDatasetContextChange((current) => ({
       ...current,
       [field]: value,
     }));
@@ -2602,18 +2628,17 @@ function XRDParametersPanel({
   }
 
   function updateKnownElements(value: string) {
-    setKnownElementsInput(value);
     updateDatasetField('knownElements', parseXrdListInput(value));
   }
 
   function updateDeclaredPhases(value: string) {
-    setDeclaredPhasesInput(value);
     updateDatasetField('declaredPhases', parseXrdListInput(value));
   }
 
   function updateCandidatePhaseIds(value: string) {
-    setCandidatePhaseIdsInput(value);
-    updateParameterStage('referenceMatch', { candidatePhaseIds: parseXrdListInput(value) });
+    const candidatePhaseIds = parseXrdListInput(value);
+    updateParameterStage('referenceMatch', { candidatePhaseIds });
+    updateDatasetField('candidatePhaseIds', candidatePhaseIds);
   }
 
   return (
@@ -2644,13 +2669,13 @@ function XRDParametersPanel({
           />
           <XRDTextField
             label="Known elements"
-            value={knownElementsInput}
+            value={datasetContext.knownElements.join(', ')}
             onChange={updateKnownElements}
             placeholder="e.g. Co, Fe, O, Si"
           />
           <XRDTextField
             label="Declared phases"
-            value={declaredPhasesInput}
+            value={datasetContext.declaredPhases.join(', ')}
             onChange={updateDeclaredPhases}
             placeholder="e.g. CoFe2O4, SBA-15"
           />
@@ -2865,7 +2890,7 @@ function XRDParametersPanel({
           <div className="col-span-2">
             <XRDTextField
               label="Candidate phase ids"
-              value={candidatePhaseIdsInput}
+              value={parameters.referenceMatch.candidatePhaseIds.join(', ')}
               onChange={updateCandidatePhaseIds}
               placeholder="e.g. cofe2o4_icsd_15342, sba15_amorphous_reference"
             />

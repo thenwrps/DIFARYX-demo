@@ -11,6 +11,9 @@
 
 import type {
   ScientificEvidenceObject,
+  XRDBackendDatasetContext,
+  XRDBackendGroupedParameters,
+  XRDProcessingParams,
   XRDProcessPayload,
   XRDProcessResponse,
   XRDNormalizedResult,
@@ -21,9 +24,147 @@ import type {
 
 const DEFAULT_BASE_URL = 'http://localhost:8000';
 const REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_REFERENCE_SET_ID = 'spinel_ferrite_sba15_demo_set';
 
 function getBackendBaseUrl(): string {
   return import.meta.env.VITE_XRD_BACKEND_URL || DEFAULT_BASE_URL;
+}
+
+// ── Request mapping ─────────────────────────────────────────────────
+
+function optionalString(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+}
+
+export function mapXrdDatasetContextToBackend(
+  datasetContext: XRDProcessPayload['datasetContext'],
+): XRDBackendDatasetContext | undefined {
+  if (!datasetContext) return undefined;
+
+  return {
+    sample_id: optionalString(datasetContext.sampleId),
+    sample_name: optionalString(datasetContext.sampleName),
+    material_class: optionalString(datasetContext.materialClass),
+    batch_id: optionalString(datasetContext.batchId),
+    known_elements: datasetContext.knownElements,
+    expected_elements: datasetContext.expectedElements,
+    excluded_elements: datasetContext.excludedElements,
+    declared_phases: datasetContext.declaredPhases,
+    candidate_phase_ids: datasetContext.candidatePhaseIds,
+    excluded_phase_ids: datasetContext.excludedPhaseIds,
+    reference_source: datasetContext.referenceSource,
+    reference_set_id: optionalString(datasetContext.referenceSetId) ?? DEFAULT_REFERENCE_SET_ID,
+    identity_source: datasetContext.identitySource,
+    identity_confidence: datasetContext.identityConfidence,
+  };
+}
+
+export function mapXrdParametersToBackend(
+  parameters: XRDProcessPayload['parameters'],
+): XRDBackendGroupedParameters | undefined {
+  if (!parameters) return undefined;
+
+  const referenceSetId = optionalString(parameters.referenceMatch.referenceSetId) ?? DEFAULT_REFERENCE_SET_ID;
+
+  return {
+    range: {
+      two_theta_min: parameters.range.twoThetaMin,
+      two_theta_max: parameters.range.twoThetaMax,
+    },
+    radiation: {
+      source: parameters.radiation.source,
+      wavelength_angstrom: parameters.radiation.wavelengthAngstrom,
+    },
+    baseline: {
+      method: parameters.baseline.method,
+      lambda: parameters.baseline.lambda,
+      p: parameters.baseline.p,
+    },
+    smoothing: {
+      method: parameters.smoothing.method,
+      window_size: parameters.smoothing.windowSize,
+      polynomial_order: parameters.smoothing.polynomialOrder,
+    },
+    peak_detection: {
+      min_prominence: parameters.peakDetection.minProminence,
+      min_distance_deg: parameters.peakDetection.minDistanceDeg,
+      min_height_ratio: parameters.peakDetection.minHeightRatio,
+      max_peak_count: parameters.peakDetection.maxPeakCount,
+    },
+    peak_fitting: {
+      model: parameters.peakFitting.model,
+      fit_window_deg: parameters.peakFitting.fitWindowDeg,
+      max_iterations: parameters.peakFitting.maxIterations,
+      calculate_crystallite_size: parameters.peakFitting.calculateCrystalliteSize,
+    },
+    reference_match: {
+      enabled: parameters.referenceMatch.enabled,
+      match_mode: parameters.referenceMatch.matchMode,
+      reference_source: parameters.referenceMatch.referenceSource,
+      reference_set_id: referenceSetId,
+      candidate_phase_ids: parameters.referenceMatch.candidatePhaseIds,
+      tolerance_two_theta: parameters.referenceMatch.toleranceTwoTheta,
+      min_matched_peaks: parameters.referenceMatch.minMatchedPeaks,
+      min_coverage_ratio: parameters.referenceMatch.minCoverageRatio,
+      min_score: parameters.referenceMatch.minScore,
+      use_relative_intensity: parameters.referenceMatch.useRelativeIntensity,
+      intensity_tolerance_ratio: parameters.referenceMatch.intensityToleranceRatio,
+      allow_unknown_search: parameters.referenceMatch.allowUnknownSearch,
+      allow_identity_claim: false,
+      allow_phase_purity_claim: false,
+    },
+    boundary: {
+      enabled: parameters.boundary.enabled,
+      claim_mode: parameters.boundary.claimMode,
+      allow_identity_claim: false,
+      allow_phase_purity_claim: false,
+      require_complementary_evidence: parameters.boundary.requireComplementaryEvidence,
+      require_reference_set_for_match: parameters.boundary.requireReferenceSetForMatch,
+      require_sample_context_for_targeted_match: parameters.boundary.requireSampleContextForTargetedMatch,
+    },
+  };
+}
+
+export function mapXrdParametersToLegacyParams(
+  parameters: XRDProcessPayload['parameters'],
+): XRDProcessingParams | undefined {
+  if (!parameters) return undefined;
+
+  return {
+    theta_min: parameters.range.twoThetaMin,
+    theta_max: parameters.range.twoThetaMax,
+    wavelength: parameters.radiation.wavelengthAngstrom,
+    min_prominence: parameters.peakDetection.minProminence,
+    peak_threshold: parameters.peakDetection.minHeightRatio,
+    baseline: {
+      method: parameters.baseline.method,
+    },
+    smoothing: {
+      method: parameters.smoothing.method,
+      window_length: parameters.smoothing.windowSize,
+    },
+    fit_model: {
+      model_type: parameters.peakFitting.model,
+    },
+    database: {
+      reference_db: optionalString(parameters.referenceMatch.referenceSetId) ?? DEFAULT_REFERENCE_SET_ID,
+    },
+  };
+}
+
+function buildXrdProcessRequestBody(payload: XRDProcessPayload): Record<string, unknown> {
+  const datasetContext = mapXrdDatasetContextToBackend(payload.datasetContext);
+  const parameters = mapXrdParametersToBackend(payload.parameters);
+  const legacyParams = payload.params ?? mapXrdParametersToLegacyParams(payload.parameters);
+
+  return {
+    x: payload.x,
+    y: payload.y,
+    ...(legacyParams ? { params: legacyParams } : {}),
+    ...(datasetContext ? { dataset_context: datasetContext } : {}),
+    ...(parameters ? { parameters } : {}),
+  };
 }
 
 // ── Health check ────────────────────────────────────────────────────
@@ -174,11 +315,7 @@ export async function processXrdSignal(
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        x: payload.x,
-        y: payload.y,
-        ...(payload.params ? { params: payload.params } : {}),
-      }),
+      body: JSON.stringify(buildXrdProcessRequestBody(payload)),
       signal: controller.signal,
     });
 
@@ -239,11 +376,7 @@ export async function processXrdSkillEvidence(
     const response = await fetch(`${baseUrl}/skills/xrd/process`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        x: payload.x,
-        y: payload.y,
-        ...(payload.params ? { params: payload.params } : {}),
-      }),
+      body: JSON.stringify(buildXrdProcessRequestBody(payload)),
       signal: controller.signal,
     });
 
