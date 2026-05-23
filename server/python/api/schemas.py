@@ -11,11 +11,11 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ============================================================================
-# Enums (mirror domain enums for API contract)
+# Legacy Enums (mirror domain enums for API contract)
 # ============================================================================
 
 
@@ -45,7 +45,7 @@ class ReferenceDBAPI(str, Enum):
 
 
 # ============================================================================
-# Request schemas
+# Request schemas (legacy — kept for backward compatibility)
 # ============================================================================
 
 
@@ -90,6 +90,14 @@ class XRDProcessRequest(BaseModel):
 
     All parameters are optional; omitted fields use sensible defaults.
     Raw data can be provided inline or uploaded as CSV.
+
+    Phase 3 additions (backward-compatible):
+        - dataset_context: optional XRDDatasetContext metadata
+        - parameters: optional grouped XRDParameters contract
+
+    These new fields are accepted and validated but do NOT yet drive
+    the scientific engine. The legacy flat fields remain authoritative
+    for engine behavior.
     """
     x: Optional[List[float]] = Field(
         default=None,
@@ -120,6 +128,16 @@ class XRDProcessRequest(BaseModel):
     theta_max: float = Field(default=80.0, ge=0.0, le=180.0)
     peak_threshold: float = Field(default=0.12, ge=0.01, le=1.0)
     min_prominence: float = Field(default=0.08, ge=0.0, le=1.0)
+
+    # ── Phase 3 optional fields ─────────────────────────────────────────
+    dataset_context: Optional["XRDDatasetContext"] = Field(
+        default=None,
+        description="Phase 3: optional dataset context metadata.",
+    )
+    parameters: Optional["XRDParameters"] = Field(
+        default=None,
+        description="Phase 3: optional grouped XRD parameter contract.",
+    )
 
 
 class MatchRequest(BaseModel):
@@ -276,4 +294,394 @@ class ScientificEvidenceObject(BaseModel):
 class XRDSkillProcessResponse(BaseModel):
     """Response model for the XRD Science Skill processing endpoint."""
     legacy_result: XRDProcessResponse = Field(description="Legacy XRD processor output.")
-    evidence_object: ScientificEvidenceObject = Field(description="Validation-bounded scientific evidence object.")
+    evidence_object: ScientificEvidenceObject = Field(description="Validation-bounded scientific evidence object.")
+
+
+# ============================================================================
+# Phase 3 — Grouped XRD contract (machine-safe enums + dataset context)
+#
+# These models mirror the frontend TypeScript interfaces introduced in
+# Phase 1/2:
+#   - src/types/xrdParameters.ts
+#   - src/types/xrdDatasetContext.ts
+#
+# All enum values use machine-safe snake_case identifiers.
+# Display-label normalizers accept old UI labels and coerce to the
+# machine-safe equivalent so both old and new payloads work.
+#
+# Defaults mirror DEFAULT_XRD_PARAMETERS from src/config/xrdDefaults.ts.
+# ============================================================================
+
+
+# ── Machine-safe enums ──────────────────────────────────────────────────────
+
+
+class BaselineMethodV2(str, Enum):
+    ASYMMETRIC_LS = "asymmetric_ls"
+    POLYNOMIAL = "polynomial"
+    ROLLING_BALL = "rolling_ball"
+    NONE = "none"
+
+
+class SmoothingMethodV2(str, Enum):
+    SAVITZKY_GOLAY = "savitzky_golay"
+    MOVING_AVERAGE = "moving_average"
+    NONE = "none"
+
+
+class FitModelTypeV2(str, Enum):
+    PSEUDO_VOIGT = "pseudo_voigt"
+    GAUSSIAN = "gaussian"
+    LORENTZIAN = "lorentzian"
+
+
+class RadiationSource(str, Enum):
+    CU_KA = "cu_ka"
+    CO_KA = "co_ka"
+    MO_KA = "mo_ka"
+    CUSTOM = "custom"
+
+
+class ReferenceSourceV2(str, Enum):
+    INTERNAL_CURATED = "internal_curated"
+    PROJECT_LOCAL_REFERENCE = "project_local_reference"
+    UPLOADED_REFERENCE = "uploaded_reference"
+
+
+class MatchMode(str, Enum):
+    DISABLED = "disabled"
+    CANDIDATE_SCREENING = "candidate_screening"
+    TARGETED_CANDIDATE_MATCH = "targeted_candidate_match"
+
+
+class ClaimMode(str, Enum):
+    CONSERVATIVE = "conservative"
+    STANDARD = "standard"
+    EXPLORATORY = "exploratory"
+
+
+class IdentitySource(str, Enum):
+    USER_DECLARED = "user_declared"
+    PROJECT_REGISTRY = "project_registry"
+    FILENAME_HINT = "filename_hint"
+    UNKNOWN = "unknown"
+
+
+class IdentityConfidence(str, Enum):
+    DECLARED = "declared"
+    INFERRED = "inferred"
+    UNKNOWN = "unknown"
+
+
+# ── Display-label → machine-safe normalizer ─────────────────────────────────
+
+_LABEL_TO_SAFE: Dict[str, str] = {
+    # Baseline
+    "Asymmetric LS": "asymmetric_ls",
+    "Polynomial": "polynomial",
+    "Rolling Ball": "rolling_ball",
+    "None": "none",
+    # Smoothing
+    "Savitzky-Golay": "savitzky_golay",
+    "Moving Average": "moving_average",
+    # Fit model
+    "Pseudo-Voigt": "pseudo_voigt",
+    "Gaussian": "gaussian",
+    "Lorentzian": "lorentzian",
+    # Reference source
+    "Internal Curated": "internal_curated",
+    "Project Local Reference": "project_local_reference",
+    "Uploaded Reference": "uploaded_reference",
+    # Match mode
+    "Targeted Candidate Match": "targeted_candidate_match",
+    "Candidate Screening": "candidate_screening",
+    # Radiation
+    "Cu Kα": "cu_ka",
+    "Co Kα": "co_ka",
+    "Mo Kα": "mo_ka",
+    # Claim mode
+    "Conservative": "conservative",
+    "Standard": "standard",
+    "Exploratory": "exploratory",
+}
+
+
+def _normalize_label(value: str, _enum_cls: type) -> str:
+    """Return *value* as a valid enum value, normalizing display labels."""
+    if value in _LABEL_TO_SAFE:
+        return _LABEL_TO_SAFE[value]
+    return value
+
+
+# ── Phase 3 grouped sub-parameter models ───────────────────────────────────
+
+
+class XRDRangeParameters(BaseModel):
+    """2θ acquisition range."""
+    two_theta_min: float = Field(default=10.0, ge=0.0, le=180.0)
+    two_theta_max: float = Field(default=80.0, ge=0.0, le=180.0)
+
+    @model_validator(mode="after")
+    def _validate_range(self) -> "XRDRangeParameters":
+        if self.two_theta_max <= self.two_theta_min:
+            raise ValueError(
+                f"two_theta_max ({self.two_theta_max}) must be greater than "
+                f"two_theta_min ({self.two_theta_min})."
+            )
+        return self
+
+
+class XRDRadiationParameters(BaseModel):
+    """X-ray radiation source configuration."""
+    source: RadiationSource = Field(
+        default=RadiationSource.CU_KA,
+        description="Radiation source identifier.",
+    )
+    wavelength_angstrom: float = Field(
+        default=1.5406,
+        gt=0.0,
+        description="X-ray wavelength in Ångströms.",
+    )
+
+    @field_validator("source", mode="before")
+    @classmethod
+    def _normalize_source(cls, v: str) -> str:
+        return _normalize_label(v, RadiationSource)
+
+
+class XRDBaselineParameters(BaseModel):
+    """Baseline correction parameters (grouped contract)."""
+    method: BaselineMethodV2 = Field(
+        default=BaselineMethodV2.ASYMMETRIC_LS,
+        description="Baseline correction method.",
+    )
+    lambda_: float = Field(
+        default=100000.0,
+        alias="lambda",
+        gt=0.0,
+        description="Baseline smoothing parameter (λ).",
+    )
+    p: float = Field(
+        default=0.01,
+        gt=0.0,
+        lt=1.0,
+        description="Asymmetry parameter (p).",
+    )
+
+    @field_validator("method", mode="before")
+    @classmethod
+    def _normalize_method(cls, v: str) -> str:
+        return _normalize_label(v, BaselineMethodV2)
+
+
+class XRDSmoothingParameters(BaseModel):
+    """Smoothing parameters (grouped contract)."""
+    method: SmoothingMethodV2 = Field(
+        default=SmoothingMethodV2.SAVITZKY_GOLAY,
+        description="Smoothing method.",
+    )
+    window_size: int = Field(
+        default=11,
+        ge=3,
+        le=101,
+        description="Smoothing window size (must be odd).",
+    )
+    polynomial_order: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Polynomial order for Savitzky-Golay.",
+    )
+
+    @field_validator("method", mode="before")
+    @classmethod
+    def _normalize_method(cls, v: str) -> str:
+        return _normalize_label(v, SmoothingMethodV2)
+
+    @model_validator(mode="after")
+    def _validate_window(self) -> "XRDSmoothingParameters":
+        if self.window_size % 2 == 0:
+            raise ValueError(
+                f"smoothing window_size must be odd, got {self.window_size}."
+            )
+        if self.polynomial_order >= self.window_size:
+            raise ValueError(
+                f"polynomial_order ({self.polynomial_order}) must be smaller "
+                f"than window_size ({self.window_size})."
+            )
+        return self
+
+
+class XRDPeakDetectionParameters(BaseModel):
+    """Peak detection parameters (grouped contract).
+
+    Defaults mirror DEFAULT_XRD_PARAMETERS.peakDetection from
+    src/config/xrdDefaults.ts.
+    """
+    min_prominence: float = Field(default=0.03, ge=0.0, le=1.0)
+    min_distance_deg: float = Field(default=0.15, gt=0.0, le=10.0)
+    min_height_ratio: float = Field(default=0.02, ge=0.0, le=1.0)
+    max_peak_count: int = Field(default=40, ge=1, le=200)
+
+
+class XRDPeakFittingParameters(BaseModel):
+    """Peak fitting parameters (grouped contract).
+
+    Defaults mirror DEFAULT_XRD_PARAMETERS.peakFitting from
+    src/config/xrdDefaults.ts.
+    """
+    model: FitModelTypeV2 = Field(
+        default=FitModelTypeV2.PSEUDO_VOIGT,
+        description="Peak profile model.",
+    )
+    fit_window_deg: float = Field(default=0.8, gt=0.0, le=10.0)
+    max_iterations: int = Field(default=500, ge=1, le=5000)
+    calculate_crystallite_size: bool = Field(default=True)
+
+    @field_validator("model", mode="before")
+    @classmethod
+    def _normalize_model(cls, v: str) -> str:
+        return _normalize_label(v, FitModelTypeV2)
+
+
+class XRDReferenceMatchParameters(BaseModel):
+    """Reference match parameters (grouped contract).
+
+    Defaults mirror DEFAULT_XRD_PARAMETERS.referenceMatch from
+    src/config/xrdDefaults.ts.
+    """
+    enabled: bool = Field(default=True)
+    match_mode: MatchMode = Field(default=MatchMode.TARGETED_CANDIDATE_MATCH)
+    reference_source: ReferenceSourceV2 = Field(
+        default=ReferenceSourceV2.INTERNAL_CURATED,
+    )
+    reference_set_id: Optional[str] = Field(
+        default="spinel_ferrite_sba15_demo_set",
+    )
+    candidate_phase_ids: List[str] = Field(default_factory=list)
+    tolerance_two_theta: float = Field(default=0.5, gt=0.0, le=5.0)
+    min_matched_peaks: int = Field(default=3, ge=1, le=50)
+    min_coverage_ratio: float = Field(default=0.5, ge=0.0, le=1.0)
+    min_score: float = Field(default=0.65, ge=0.0, le=1.0)
+    use_relative_intensity: bool = Field(default=False)
+    intensity_tolerance_ratio: float = Field(default=0.5, ge=0.0, le=1.0)
+    allow_unknown_search: bool = Field(default=False)
+    allow_identity_claim: bool = Field(default=False)
+    allow_phase_purity_claim: bool = Field(default=False)
+
+    @field_validator("match_mode", mode="before")
+    @classmethod
+    def _normalize_match_mode(cls, v: str) -> str:
+        return _normalize_label(v, MatchMode)
+
+    @field_validator("reference_source", mode="before")
+    @classmethod
+    def _normalize_ref_source(cls, v: str) -> str:
+        return _normalize_label(v, ReferenceSourceV2)
+
+    @model_validator(mode="after")
+    def _enforce_boundary_flags(self) -> "XRDReferenceMatchParameters":
+        if self.allow_identity_claim is True:
+            raise ValueError(
+                "allow_identity_claim must remain false; "
+                "phase identity claims are not yet validated."
+            )
+        if self.allow_phase_purity_claim is True:
+            raise ValueError(
+                "allow_phase_purity_claim must remain false; "
+                "phase purity claims are not yet validated."
+            )
+        return self
+
+
+class XRDBoundaryParameters(BaseModel):
+    """Boundary / claim-limiting parameters (grouped contract).
+
+    Defaults mirror DEFAULT_XRD_PARAMETERS.boundary from
+    src/config/xrdDefaults.ts.
+    """
+    enabled: bool = Field(default=True)
+    claim_mode: ClaimMode = Field(default=ClaimMode.STANDARD)
+    allow_identity_claim: bool = Field(default=False)
+    allow_phase_purity_claim: bool = Field(default=False)
+    require_complementary_evidence: bool = Field(default=True)
+    require_reference_set_for_match: bool = Field(default=True)
+    require_sample_context_for_targeted_match: bool = Field(default=True)
+
+    @field_validator("claim_mode", mode="before")
+    @classmethod
+    def _normalize_claim_mode(cls, v: str) -> str:
+        return _normalize_label(v, ClaimMode)
+
+    @model_validator(mode="after")
+    def _enforce_boundary_flags(self) -> "XRDBoundaryParameters":
+        if self.allow_identity_claim is True:
+            raise ValueError(
+                "allow_identity_claim must remain false; "
+                "phase identity claims are not yet validated."
+            )
+        if self.allow_phase_purity_claim is True:
+            raise ValueError(
+                "allow_phase_purity_claim must remain false; "
+                "phase purity claims are not yet validated."
+            )
+        return self
+
+
+# ── Top-level grouped parameters ───────────────────────────────────────────
+
+
+class XRDParameters(BaseModel):
+    """
+    Complete grouped XRD parameter contract.
+
+    Mirrors the frontend ``XRDParameters`` interface from
+    ``src/types/xrdParameters.ts`` with defaults from
+    ``src/config/xrdDefaults.ts``.
+    """
+    range: XRDRangeParameters = Field(default_factory=XRDRangeParameters)
+    radiation: XRDRadiationParameters = Field(default_factory=XRDRadiationParameters)
+    baseline: XRDBaselineParameters = Field(default_factory=XRDBaselineParameters)
+    smoothing: XRDSmoothingParameters = Field(default_factory=XRDSmoothingParameters)
+    peak_detection: XRDPeakDetectionParameters = Field(
+        default_factory=XRDPeakDetectionParameters,
+    )
+    peak_fitting: XRDPeakFittingParameters = Field(
+        default_factory=XRDPeakFittingParameters,
+    )
+    reference_match: XRDReferenceMatchParameters = Field(
+        default_factory=XRDReferenceMatchParameters,
+    )
+    boundary: XRDBoundaryParameters = Field(default_factory=XRDBoundaryParameters)
+
+
+class XRDDatasetContext(BaseModel):
+    """
+    Dataset context metadata for XRD processing.
+
+    Mirrors the frontend ``XRDDatasetContext`` interface from
+    ``src/types/xrdDatasetContext.ts``.
+    """
+    sample_id: Optional[str] = Field(default=None)
+    sample_name: Optional[str] = Field(default=None)
+    material_class: Optional[str] = Field(default=None)
+    batch_id: Optional[str] = Field(default=None)
+    known_elements: List[str] = Field(default_factory=list)
+    expected_elements: List[str] = Field(default_factory=list)
+    excluded_elements: List[str] = Field(default_factory=list)
+    declared_phases: List[str] = Field(default_factory=list)
+    candidate_phase_ids: List[str] = Field(default_factory=list)
+    excluded_phase_ids: List[str] = Field(default_factory=list)
+    reference_source: ReferenceSourceV2 = Field(
+        default=ReferenceSourceV2.INTERNAL_CURATED,
+    )
+    reference_set_id: Optional[str] = Field(default=None)
+    identity_source: IdentitySource = Field(default=IdentitySource.UNKNOWN)
+    identity_confidence: IdentityConfidence = Field(
+        default=IdentityConfidence.UNKNOWN,
+    )
+
+    @field_validator("reference_source", mode="before")
+    @classmethod
+    def _normalize_ref_source(cls, v: str) -> str:
+        return _normalize_label(v, ReferenceSourceV2)

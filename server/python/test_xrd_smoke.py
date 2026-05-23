@@ -403,6 +403,336 @@ def test_scientific_skills_layer():
                  "no absolute confirmation terms found" if not found_banned else "found banned terms")
 
 
+# ── Test 4: Phase 3 — Grouped contract accepted ─────────────────────────────
+
+def test_phase3_grouped_contract_accepted():
+    """
+    POST /process with the new grouped XRD contract (dataset_context + parameters)
+    alongside legacy flat fields must return 200 and still produce a valid result.
+    """
+    print("\n═══ Test 4: Phase 3 — Grouped contract accepted ═══")
+    x, y = generate_cofe2o4_xrd_pattern()
+
+    payload = {
+        # Legacy flat fields (still authoritative for engine)
+        "x": x,
+        "y": y,
+        "theta_min": 10.0,
+        "theta_max": 80.0,
+        "peak_threshold": 0.10,
+        "min_prominence": 0.05,
+        # Phase 3: new grouped contract (accepted and validated, not consumed by engine)
+        "dataset_context": {
+            "sample_id": "CFO-001",
+            "sample_name": "CoFe2O4 Nanoparticles",
+            "material_class": "spinel_ferrite",
+            "batch_id": "batch-2026-05",
+            "known_elements": ["Co", "Fe", "O"],
+            "expected_elements": ["Co", "Fe", "O"],
+            "excluded_elements": ["Ni", "Zn"],
+            "declared_phases": ["CoFe2O4 Spinel"],
+            "candidate_phase_ids": ["spinel_cfo"],
+            "excluded_phase_ids": [],
+            "reference_source": "internal_curated",
+            "reference_set_id": "spinel_ferrite_sba15_demo_set",
+            "identity_source": "user_declared",
+            "identity_confidence": "declared",
+        },
+        "parameters": {
+            "range": {
+                "two_theta_min": 10.0,
+                "two_theta_max": 80.0,
+            },
+            "radiation": {
+                "source": "cu_ka",
+                "wavelength_angstrom": 1.5406,
+            },
+            "baseline": {
+                "method": "asymmetric_ls",
+                "lambda": 100000.0,
+                "p": 0.01,
+            },
+            "smoothing": {
+                "method": "savitzky_golay",
+                "window_size": 11,
+                "polynomial_order": 3,
+            },
+            "peak_detection": {
+                "min_prominence": 0.03,
+                "min_distance_deg": 0.15,
+                "min_height_ratio": 0.02,
+                "max_peak_count": 40,
+            },
+            "peak_fitting": {
+                "model": "pseudo_voigt",
+                "fit_window_deg": 0.8,
+                "max_iterations": 500,
+                "calculate_crystallite_size": True,
+            },
+            "reference_match": {
+                "enabled": True,
+                "match_mode": "targeted_candidate_match",
+                "reference_source": "internal_curated",
+                "reference_set_id": "spinel_ferrite_sba15_demo_set",
+                "candidate_phase_ids": [],
+                "tolerance_two_theta": 0.5,
+                "min_matched_peaks": 3,
+                "min_coverage_ratio": 0.5,
+                "min_score": 0.65,
+                "use_relative_intensity": False,
+                "intensity_tolerance_ratio": 0.5,
+                "allow_unknown_search": False,
+                "allow_identity_claim": False,
+                "allow_phase_purity_claim": False,
+            },
+            "boundary": {
+                "enabled": True,
+                "claim_mode": "standard",
+                "allow_identity_claim": False,
+                "allow_phase_purity_claim": False,
+                "require_complementary_evidence": True,
+                "require_reference_set_for_match": True,
+                "require_sample_context_for_targeted_match": True,
+            },
+        },
+    }
+
+    resp = client.post("/process", json=payload)
+    log_test("Grouped contract: POST /process returns 200", resp.status_code == 200,
+             f"status={resp.status_code}")
+
+    if resp.status_code == 200:
+        data = resp.json()
+        det = data.get("detected_peaks", [])
+        log_test("Grouped contract: detected_peaks is non-empty list",
+                 isinstance(det, list) and len(det) > 0,
+                 f"count={len(det)}")
+    else:
+        log_test("Grouped contract: response body", False, resp.text[:500])
+
+
+# ── Test 5: Phase 3 — Boundary flags must remain false ──────────────────────
+
+def test_phase3_boundary_flags_rejected():
+    """
+    POST /process with boundary allow_identity_claim=true must be rejected
+    with a 422 validation error. Same for allow_phase_purity_claim=true.
+    """
+    print("\n═══ Test 5: Phase 3 — Boundary flags rejected ═══")
+    x, y = generate_cofe2o4_xrd_pattern()
+
+    # Test allow_identity_claim = true on boundary
+    payload_identity = {
+        "x": x,
+        "y": y,
+        "parameters": {
+            "boundary": {
+                "allow_identity_claim": True,
+            },
+        },
+    }
+    resp = client.post("/process", json=payload_identity)
+    log_test("Boundary allow_identity_claim=true returns 422",
+             resp.status_code == 422, f"status={resp.status_code}")
+
+    # Test allow_phase_purity_claim = true on boundary
+    payload_purity = {
+        "x": x,
+        "y": y,
+        "parameters": {
+            "boundary": {
+                "allow_phase_purity_claim": True,
+            },
+        },
+    }
+    resp = client.post("/process", json=payload_purity)
+    log_test("Boundary allow_phase_purity_claim=true returns 422",
+             resp.status_code == 422, f"status={resp.status_code}")
+
+    # Test allow_identity_claim = true on reference_match
+    payload_ref_identity = {
+        "x": x,
+        "y": y,
+        "parameters": {
+            "reference_match": {
+                "allow_identity_claim": True,
+            },
+        },
+    }
+    resp = client.post("/process", json=payload_ref_identity)
+    log_test("Reference match allow_identity_claim=true returns 422",
+             resp.status_code == 422, f"status={resp.status_code}")
+
+    # Test allow_phase_purity_claim = true on reference_match
+    payload_ref_purity = {
+        "x": x,
+        "y": y,
+        "parameters": {
+            "reference_match": {
+                "allow_phase_purity_claim": True,
+            },
+        },
+    }
+    resp = client.post("/process", json=payload_ref_purity)
+    log_test("Reference match allow_phase_purity_claim=true returns 422",
+             resp.status_code == 422, f"status={resp.status_code}")
+
+
+# ── Test 6: Phase 3 — Display label normalization ───────────────────────────
+
+def test_phase3_display_label_normalization():
+    """
+    Construct XRDParameters with old display labels via model_validate
+    and verify they normalize to the expected machine-safe enum values.
+
+    Uses model_validate(dict) so that the "lambda" alias can be passed
+    as a dict key without conflicting with the Python reserved keyword.
+    """
+    print("\n═══ Test 6: Phase 3 — Display label normalization ═══")
+
+    from api.schemas import (
+        XRDParameters,
+        BaselineMethodV2,
+        SmoothingMethodV2,
+        FitModelTypeV2,
+        RadiationSource,
+        ReferenceSourceV2,
+        MatchMode,
+        ClaimMode,
+        XRDBaselineParameters,
+        XRDSmoothingParameters,
+        XRDRadiationParameters,
+        XRDPeakFittingParameters,
+        XRDReferenceMatchParameters,
+        XRDBoundaryParameters,
+    )
+
+    # Baseline: "Asymmetric LS" -> asymmetric_ls (use model_validate for lambda alias)
+    bp = XRDBaselineParameters.model_validate({
+        "method": "Asymmetric LS",
+        "lambda": 100000.0,
+        "p": 0.01,
+    })
+    log_test("Baseline 'Asymmetric LS' -> asymmetric_ls",
+             bp.method == BaselineMethodV2.ASYMMETRIC_LS,
+             f"value={bp.method.value}")
+
+    # Smoothing: "Savitzky-Golay" -> savitzky_golay
+    sp = XRDSmoothingParameters(method="Savitzky-Golay", window_size=11, polynomial_order=3)
+    log_test("Smoothing 'Savitzky-Golay' -> savitzky_golay",
+             sp.method == SmoothingMethodV2.SAVITZKY_GOLAY,
+             f"value={sp.method.value}")
+
+    # Peak fitting: "Pseudo-Voigt" -> pseudo_voigt
+    fp = XRDPeakFittingParameters(model="Pseudo-Voigt")
+    log_test("Fit model 'Pseudo-Voigt' -> pseudo_voigt",
+             fp.model == FitModelTypeV2.PSEUDO_VOIGT,
+             f"value={fp.model.value}")
+
+    # Radiation: "Cu Kα" -> cu_ka
+    rp = XRDRadiationParameters(source="Cu Kα", wavelength_angstrom=1.5406)
+    log_test("Radiation 'Cu Kα' -> cu_ka",
+             rp.source == RadiationSource.CU_KA,
+             f"value={rp.source.value}")
+
+    # Reference source: "Internal Curated" -> internal_curated
+    rm = XRDReferenceMatchParameters(reference_source="Internal Curated")
+    log_test("Ref source 'Internal Curated' -> internal_curated",
+             rm.reference_source == ReferenceSourceV2.INTERNAL_CURATED,
+             f"value={rm.reference_source.value}")
+
+    # Match mode: "Targeted Candidate Match" -> targeted_candidate_match
+    rm2 = XRDReferenceMatchParameters(match_mode="Targeted Candidate Match")
+    log_test("Match mode 'Targeted Candidate Match' -> targeted_candidate_match",
+             rm2.match_mode == MatchMode.TARGETED_CANDIDATE_MATCH,
+             f"value={rm2.match_mode.value}")
+
+    # Claim mode: "Standard" -> standard
+    bp2 = XRDBoundaryParameters(claim_mode="Standard")
+    log_test("Claim mode 'Standard' -> standard",
+             bp2.claim_mode == ClaimMode.STANDARD,
+             f"value={bp2.claim_mode.value}")
+
+    # Full grouped contract with mixed display labels via model_validate
+    params = XRDParameters.model_validate({
+        "baseline": {"method": "Asymmetric LS", "lambda": 100000.0, "p": 0.01},
+        "smoothing": {"method": "Savitzky-Golay", "window_size": 11, "polynomial_order": 3},
+        "radiation": {"source": "Cu Kα", "wavelength_angstrom": 1.5406},
+        "peak_fitting": {"model": "Pseudo-Voigt"},
+        "reference_match": {
+            "match_mode": "Targeted Candidate Match",
+            "reference_source": "Internal Curated",
+        },
+        "boundary": {"claim_mode": "Standard"},
+    })
+    all_machine_safe = (
+        params.baseline.method.value == "asymmetric_ls"
+        and params.smoothing.method.value == "savitzky_golay"
+        and params.radiation.source.value == "cu_ka"
+        and params.peak_fitting.model.value == "pseudo_voigt"
+        and params.reference_match.match_mode.value == "targeted_candidate_match"
+        and params.reference_match.reference_source.value == "internal_curated"
+        and params.boundary.claim_mode.value == "standard"
+    )
+    log_test("Full grouped contract: all display labels normalized", all_machine_safe)
+
+    # Baseline lambda alias tested via model_validate
+    bp3 = XRDBaselineParameters.model_validate({
+        "method": "asymmetric_ls",
+        "lambda": 50000.0,
+        "p": 0.05,
+    })
+    log_test("Baseline lambda alias reads correctly via model_validate",
+             bp3.lambda_ == 50000.0,
+             f"lambda_={bp3.lambda_}")
+
+    # "Moving Average" smoothing
+    sp2 = XRDSmoothingParameters(method="Moving Average", window_size=5, polynomial_order=2)
+    log_test("Smoothing 'Moving Average' -> moving_average",
+             sp2.method == SmoothingMethodV2.MOVING_AVERAGE,
+             f"value={sp2.method.value}")
+
+    # "Gaussian" fit model
+    fp2 = XRDPeakFittingParameters(model="Gaussian")
+    log_test("Fit model 'Gaussian' -> gaussian",
+             fp2.model == FitModelTypeV2.GAUSSIAN,
+             f"value={fp2.model.value}")
+
+    # "Lorentzian" fit model
+    fp3 = XRDPeakFittingParameters(model="Lorentzian")
+    log_test("Fit model 'Lorentzian' -> lorentzian",
+             fp3.model == FitModelTypeV2.LORENTZIAN,
+             f"value={fp3.model.value}")
+
+    # "Candidate Screening" match mode
+    rm3 = XRDReferenceMatchParameters(match_mode="Candidate Screening")
+    log_test("Match mode 'Candidate Screening' -> candidate_screening",
+             rm3.match_mode == MatchMode.CANDIDATE_SCREENING,
+             f"value={rm3.match_mode.value}")
+
+    # "Rolling Ball" baseline
+    bp4 = XRDBaselineParameters.model_validate({
+        "method": "Rolling Ball",
+        "lambda": 50000.0,
+        "p": 0.05,
+    })
+    log_test("Baseline 'Rolling Ball' -> rolling_ball",
+             bp4.method == BaselineMethodV2.ROLLING_BALL,
+             f"value={bp4.method.value}")
+
+    # "Co Kα" radiation
+    rp2 = XRDRadiationParameters(source="Co Kα", wavelength_angstrom=1.7903)
+    log_test("Radiation 'Co Kα' -> co_ka",
+             rp2.source == RadiationSource.CO_KA,
+             f"value={rp2.source.value}")
+
+    # "Mo Kα" radiation
+    rp3 = XRDRadiationParameters(source="Mo Kα", wavelength_angstrom=0.7107)
+    log_test("Radiation 'Mo Kα' -> mo_ka",
+             rp3.source == RadiationSource.MO_KA,
+             f"value={rp3.source.value}")
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -419,6 +749,9 @@ if __name__ == "__main__":
     test_empty_arrays()
     test_health_endpoint()
     test_scientific_skills_layer()
+    test_phase3_grouped_contract_accepted()
+    test_phase3_boundary_flags_rejected()
+    test_phase3_display_label_normalization()
 
     # Summary
     print("\n" + "═" * 56)
