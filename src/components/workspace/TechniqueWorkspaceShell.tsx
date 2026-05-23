@@ -121,6 +121,12 @@ const CENTER_PANEL_MIN_WIDTH = 520;
 type GraphToolId = 'pan' | 'zoom' | 'select' | 'reset' | 'fit';
 type GraphActionId = 'save-view' | 'export-graph' | 'focus-graph' | 'copy-view-link' | 'reset-layout' | 'restore-saved-view';
 
+function debugXrdReprocessTrace(message: string, details?: Record<string, unknown>) {
+  if (import.meta.env.DEV) {
+    console.info(`[xrd-reprocess] ${message}`, details ?? {});
+  }
+}
+
 const GRAPH_TOOLS: Array<{ id: GraphToolId; label: string; Icon: React.ElementType }> = [
   { id: 'pan', label: 'Pan', Icon: Move },
   { id: 'zoom', label: 'Zoom', Icon: ZoomIn },
@@ -1057,7 +1063,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
       });
     }
 
-    if ((isUploadedContext || isQuickMode) && graphData?.type === 'XRD') {
+    if (graphData?.type === 'XRD') {
       return buildXrdBackendSignalSource(graphData.data, {
         uploadedRunId: uploadedRunId ?? undefined,
         fileName: datasetLabel,
@@ -1068,6 +1074,12 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
   };
 
   const runXrdBackendProcessing = (signalSource: XRDBackendSignalSource) => {
+    debugXrdReprocessTrace('backend process call started', {
+      xLength: signalSource.x.length,
+      yLength: signalSource.y.length,
+      fileName: signalSource.fileName,
+      uploadedRunId: signalSource.uploadedRunId,
+    });
     setXrdBackendLoading(true);
     setXrdBackendError(null);
     setXrdBackendSaved(false);
@@ -1106,6 +1118,15 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
   };
 
   const reprocess = () => {
+    if (technique === 'xrd') {
+      debugXrdReprocessTrace('Reprocess Peaks clicked', {
+        routeUploadedRunId: routeContext.uploadedRunId,
+        quickUploadedRunId: quickAnalysisSession?.uploadedRunId,
+        graphType: graphData?.type,
+        graphPointCount: graphData?.data?.length ?? 0,
+      });
+    }
+
     // For uploaded XRD context, run actual processing
     if (isUploadedContext && technique === 'xrd' && routeContext.uploadedRunId) {
       const uploadedRun = getUploadedRunById(routeContext.uploadedRunId);
@@ -1194,12 +1215,34 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
 
           // Fire-and-forget: run XRD backend alongside local agent
           if (isXrdBackendEnabled) {
+            const backendSignalSource = buildXrdBackendSignalSource(uploadedRun.points, {
+              uploadedRunId: routeContext.uploadedRunId,
+              fileName: uploadedRun.fileName,
+            });
+            if (backendSignalSource) {
+              debugXrdReprocessTrace('XRD signal found', {
+                source: 'uploaded-run',
+                pointCount: backendSignalSource.x.length,
+              });
+            } else {
+              debugXrdReprocessTrace('XRD signal not found', {
+                source: 'uploaded-run',
+                pointCount: uploadedRun.points.length,
+              });
+              return;
+            }
             setXrdBackendLoading(true);
             setXrdBackendError(null);
             setXrdBackendSaved(false);
+            debugXrdReprocessTrace('backend process call started', {
+              xLength: backendSignalSource.x.length,
+              yLength: backendSignalSource.y.length,
+              fileName: backendSignalSource.fileName,
+              uploadedRunId: backendSignalSource.uploadedRunId,
+            });
             processXrdSkillEvidence({
-              x: uploadedRun.points.map((p) => p.x),
-              y: uploadedRun.points.map((p) => p.y),
+              x: backendSignalSource.x,
+              y: backendSignalSource.y,
               datasetContext: xrdDatasetContext,
               parameters: xrdParameters,
             })
@@ -1246,7 +1289,19 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
     if (technique === 'xrd') {
       const backendSignalSource = getXrdBackendSignalSource();
       if (backendSignalSource) {
+        debugXrdReprocessTrace('XRD signal found', {
+          source: backendSignalSource.uploadedRunId ? 'uploaded-run-or-session' : 'graph-data',
+          pointCount: backendSignalSource.x.length,
+          fileName: backendSignalSource.fileName,
+          uploadedRunId: backendSignalSource.uploadedRunId,
+        });
         runXrdBackendProcessing(backendSignalSource);
+      } else {
+        debugXrdReprocessTrace('XRD signal not found', {
+          backendEnabled: isXrdBackendEnabled,
+          graphType: graphData?.type,
+          graphPointCount: graphData?.data?.length ?? 0,
+        });
       }
     }
 
@@ -2716,6 +2771,13 @@ function XRDParametersPanel({
     updateParameterStage('referenceMatch', { referenceSetId: nextReferenceSetId });
   }
 
+  function handleLegacyReprocessClick() {
+    debugXrdReprocessTrace('Legacy Demo Processing Reprocess Peaks button clicked', {
+      surface: 'xrd-parameters-tab',
+    });
+    onReprocess();
+  }
+
   function updateKnownElements(value: string) {
     updateDatasetField('knownElements', parseXrdListInput(value));
   }
@@ -3112,7 +3174,7 @@ function XRDParametersPanel({
           </button>
           <button
             type="button"
-            onClick={onReprocess}
+            onClick={handleLegacyReprocessClick}
             className="h-8 rounded border border-blue-200 bg-blue-50 px-2 text-[11px] font-bold text-blue-700 hover:bg-blue-100"
           >
             {config.reprocessLabel}

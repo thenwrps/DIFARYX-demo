@@ -30,6 +30,12 @@ function getBackendBaseUrl(): string {
   return import.meta.env.VITE_XRD_BACKEND_URL || DEFAULT_BASE_URL;
 }
 
+function debugXrdBackendClient(message: string, details?: Record<string, unknown>) {
+  if (import.meta.env.DEV) {
+    console.info(`[xrd-backend-client] ${message}`, details ?? {});
+  }
+}
+
 // ── Request mapping ─────────────────────────────────────────────────
 
 function optionalString(value: string | undefined): string | undefined {
@@ -311,6 +317,11 @@ export async function processXrdSignal(
 
   try {
     const url = `${baseUrl}/process`;
+    debugXrdBackendClient('endpoint used', {
+      endpoint: url,
+      xLength: payload.x.length,
+      yLength: payload.y.length,
+    });
 
     const response = await fetch(url, {
       method: 'POST',
@@ -373,7 +384,14 @@ export async function processXrdSkillEvidence(
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(`${baseUrl}/skills/xrd/process`, {
+    const url = `${baseUrl}/skills/xrd/process`;
+    debugXrdBackendClient('endpoint used', {
+      endpoint: url,
+      xLength: payload.x.length,
+      yLength: payload.y.length,
+    });
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildXrdProcessRequestBody(payload)),
@@ -393,7 +411,11 @@ export async function processXrdSkillEvidence(
       ...normalizeXrdBackendResponse(data.legacy_result),
       scientificEvidenceObject: data.evidence_object,
     };
-  } catch {
+  } catch (err) {
+    debugXrdBackendClient('skill endpoint unavailable; falling back to legacy process endpoint', {
+      baseUrl,
+      error: err instanceof Error ? err.message : 'Unknown XRD backend error',
+    });
     return processXrdSignal(payload, options);
   } finally {
     clearTimeout(timeoutId);
