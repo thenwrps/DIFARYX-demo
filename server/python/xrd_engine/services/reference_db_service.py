@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from xrd_engine.services.xrd_engine import FittedPeak
 
@@ -434,3 +434,319 @@ def match_peaks(
     )
 
     return result
+
+
+# ============================================================================
+# Phase 4A/4B — Curated reference set + candidate matching
+#
+# This section adds a curated reference set for evidence-based candidate
+# matching.  It does NOT replace the legacy match_peaks() function above.
+# All results are candidate evidence only: phase_confirmed and
+# phase_purity_confirmed are always False.
+# ============================================================================
+
+
+# ── Curated reference set: spinel_ferrite_sba15_demo_set ───────────────────
+
+# Each entry uses real curated reference peaks from JCPDS/ICSD cards.
+# Relative intensities are on a 0-100 scale relative to the strongest peak.
+
+_CURATED_PHASES: List[dict] = [
+    {
+        "phase_id": "cofe2o4_icsd_15342",
+        "phase_label": "CoFe2O4 Spinel (ICSD 15342)",
+        "formula": "CoFe2O4",
+        "structure_family": "spinel",
+        "elements": ["Co", "Fe", "O"],
+        "database_ref": "ICSD-15342 / JCPDS 22-1086",
+        "peaks": [
+            {"two_theta": 18.37, "relative_intensity": 12.0, "hkl": "(111)", "d_spacing": 4.843},
+            {"two_theta": 30.12, "relative_intensity": 30.0, "hkl": "(220)", "d_spacing": 2.966},
+            {"two_theta": 35.48, "relative_intensity": 100.0, "hkl": "(311)", "d_spacing": 2.532},
+            {"two_theta": 37.10, "relative_intensity": 8.0, "hkl": "(222)", "d_spacing": 2.422},
+            {"two_theta": 43.12, "relative_intensity": 20.0, "hkl": "(400)", "d_spacing": 2.097},
+            {"two_theta": 53.52, "relative_intensity": 10.0, "hkl": "(422)", "d_spacing": 1.713},
+            {"two_theta": 57.02, "relative_intensity": 30.0, "hkl": "(511)", "d_spacing": 1.614},
+            {"two_theta": 62.62, "relative_intensity": 40.0, "hkl": "(440)", "d_spacing": 1.483},
+        ],
+    },
+    {
+        "phase_id": "fe3o4_reference",
+        "phase_label": "Fe3O4 Magnetite",
+        "formula": "Fe3O4",
+        "structure_family": "spinel",
+        "elements": ["Fe", "O"],
+        "database_ref": "JCPDS 19-0629 / ICSD-65362",
+        "peaks": [
+            {"two_theta": 18.30, "relative_intensity": 10.0, "hkl": "(111)", "d_spacing": 4.845},
+            {"two_theta": 30.10, "relative_intensity": 30.0, "hkl": "(220)", "d_spacing": 2.967},
+            {"two_theta": 35.42, "relative_intensity": 100.0, "hkl": "(311)", "d_spacing": 2.532},
+            {"two_theta": 37.08, "relative_intensity": 8.0, "hkl": "(222)", "d_spacing": 2.424},
+            {"two_theta": 43.08, "relative_intensity": 20.0, "hkl": "(400)", "d_spacing": 2.099},
+            {"two_theta": 53.44, "relative_intensity": 10.0, "hkl": "(422)", "d_spacing": 1.715},
+            {"two_theta": 56.96, "relative_intensity": 30.0, "hkl": "(511)", "d_spacing": 1.616},
+            {"two_theta": 62.56, "relative_intensity": 40.0, "hkl": "(440)", "d_spacing": 1.484},
+        ],
+    },
+    {
+        "phase_id": "gamma_fe2o3_reference",
+        "phase_label": "gamma-Fe2O3 Maghemite",
+        "formula": "Fe2O3",
+        "structure_family": "spinel",
+        "elements": ["Fe", "O"],
+        "database_ref": "JCPDS 39-1346",
+        "peaks": [
+            {"two_theta": 18.38, "relative_intensity": 10.0, "hkl": "(110)", "d_spacing": 4.823},
+            {"two_theta": 30.24, "relative_intensity": 25.0, "hkl": "(220)", "d_spacing": 2.953},
+            {"two_theta": 35.62, "relative_intensity": 100.0, "hkl": "(311)", "d_spacing": 2.519},
+            {"two_theta": 37.24, "relative_intensity": 8.0, "hkl": "(222)", "d_spacing": 2.414},
+            {"two_theta": 43.28, "relative_intensity": 20.0, "hkl": "(400)", "d_spacing": 2.090},
+            {"two_theta": 53.70, "relative_intensity": 10.0, "hkl": "(422)", "d_spacing": 1.706},
+            {"two_theta": 57.20, "relative_intensity": 30.0, "hkl": "(511)", "d_spacing": 1.610},
+            {"two_theta": 62.82, "relative_intensity": 35.0, "hkl": "(440)", "d_spacing": 1.479},
+        ],
+    },
+    {
+        "phase_id": "sba15_amorphous_reference",
+        "phase_label": "SBA-15 Amorphous Silica",
+        "formula": "SiO2",
+        "structure_family": "amorphous",
+        "elements": ["Si", "O"],
+        "database_ref": "Local reference (broad hump)",
+        "peaks": [
+            {"two_theta": 9.30, "relative_intensity": 40.0, "hkl": "(100 mesopore)", "d_spacing": 9.500},
+            {"two_theta": 20.00, "relative_intensity": 100.0, "hkl": "(SiO2 amorphous hump)", "d_spacing": 4.440},
+            {"two_theta": 22.00, "relative_intensity": 70.0, "hkl": "(SiO2 amorphous shoulder)", "d_spacing": 4.040},
+        ],
+    },
+]
+
+# Registry mapping reference_set_id → list of curated phase dicts
+CURATED_REFERENCE_SETS: Dict[str, List[dict]] = {
+    "spinel_ferrite_sba15_demo_set": _CURATED_PHASES,
+}
+
+
+def get_reference_set(reference_set_id: str) -> List[dict]:
+    """Return the curated phases for a given reference_set_id, or empty list."""
+    return CURATED_REFERENCE_SETS.get(reference_set_id, [])
+
+
+def match_reference_candidates(
+    measured_peaks: List[dict],
+    reference_set_id: str = "spinel_ferrite_sba15_demo_set",
+    tolerance_two_theta: float = 0.5,
+    candidate_phase_ids: Optional[List[str]] = None,
+    excluded_phase_ids: Optional[List[str]] = None,
+    known_elements: Optional[List[str]] = None,
+    min_score: float = 0.65,
+) -> dict:
+    """
+    Match measured/fitted peaks against curated reference phases and return
+    ranked candidate results.
+
+    This is evidence-based candidate screening only.  It does NOT confirm
+    phase identity or phase purity.
+
+    Args:
+        measured_peaks: List of dicts with 'center' or 'position' (2θ) and
+                        optionally 'amplitude' or 'intensity'.
+        reference_set_id: Which curated set to use.
+        tolerance_two_theta: Max |Δ2θ| for a peak pair match (default 0.5°).
+        candidate_phase_ids: If provided, restrict to these phase IDs.
+        excluded_phase_ids: Phase IDs to exclude.
+        known_elements: Elements known to be present (used for chemistry scoring).
+        min_score: Minimum final score threshold (informational).
+
+    Returns:
+        dict compatible with XRDReferenceMatchResult schema.
+    """
+    from typing import Optional as _Optional, List as _List
+
+    phases = get_reference_set(reference_set_id)
+    if not phases:
+        return {
+            "status": "unavailable",
+            "claim_level": "none",
+            "phase_confirmed": False,
+            "phase_purity_confirmed": False,
+            "reference_set_id": reference_set_id,
+            "candidate_count": 0,
+            "ranked_candidates": [],
+            "primary_candidate": None,
+            "limitations": [
+                f"Reference set '{reference_set_id}' not found.",
+                "Candidate match is based on peak-position agreement.",
+                "Chemical identity requires composition-sensitive evidence.",
+                "Phase purity is not confirmed by XRD matching alone.",
+            ],
+        }
+
+    # Filter phases by candidate_phase_ids / excluded_phase_ids
+    excluded = set(excluded_phase_ids or [])
+    if candidate_phase_ids:
+        allowed = set(candidate_phase_ids)
+        phases = [p for p in phases if p["phase_id"] in allowed and p["phase_id"] not in excluded]
+    else:
+        phases = [p for p in phases if p["phase_id"] not in excluded]
+
+    if not phases:
+        return {
+            "status": "no_match",
+            "claim_level": "none",
+            "phase_confirmed": False,
+            "phase_purity_confirmed": False,
+            "reference_set_id": reference_set_id,
+            "candidate_count": 0,
+            "ranked_candidates": [],
+            "primary_candidate": None,
+            "limitations": [
+                "No reference phases available after filtering.",
+                "Candidate match is based on peak-position agreement.",
+                "Chemical identity requires composition-sensitive evidence.",
+                "Phase purity is not confirmed by XRD matching alone.",
+            ],
+        }
+
+    # Extract measured peak positions
+    mp_positions: List[float] = []
+    for mp in measured_peaks:
+        pos = mp.get("center") or mp.get("position") or mp.get("two_theta")
+        if pos is not None:
+            mp_positions.append(float(pos))
+
+    if not mp_positions:
+        return {
+            "status": "no_match",
+            "claim_level": "none",
+            "phase_confirmed": False,
+            "phase_purity_confirmed": False,
+            "reference_set_id": reference_set_id,
+            "candidate_count": 0,
+            "ranked_candidates": [],
+            "primary_candidate": None,
+            "limitations": [
+                "No measured peak positions available for matching.",
+                "Candidate match is based on peak-position agreement.",
+                "Chemical identity requires composition-sensitive evidence.",
+                "Phase purity is not confirmed by XRD matching alone.",
+            ],
+        }
+
+    candidates: List[dict] = []
+    known_elem_set = set(e.upper() for e in (known_elements or []))
+
+    for phase in phases:
+        ref_peaks = phase.get("peaks", [])
+        if not ref_peaks:
+            continue
+
+        matched_peaks_list: List[dict] = []
+        for rp in ref_peaks:
+            ref_2theta = rp["two_theta"]
+            best_delta = float("inf")
+            best_measured = None
+            for mp in mp_positions:
+                delta = abs(mp - ref_2theta)
+                if delta < best_delta:
+                    best_delta = delta
+                    best_measured = mp
+
+            if best_measured is not None and best_delta <= tolerance_two_theta:
+                matched_peaks_list.append({
+                    "measured_two_theta": round(best_measured, 4),
+                    "reference_two_theta": round(ref_2theta, 4),
+                    "delta_two_theta": round(best_measured - ref_2theta, 4),
+                    "hkl": rp.get("hkl"),
+                    "reference_relative_intensity": rp.get("relative_intensity"),
+                })
+
+        ref_peak_count = len(ref_peaks)
+        matched_peak_count = len(matched_peaks_list)
+        coverage_ratio = round(matched_peak_count / ref_peak_count, 4) if ref_peak_count > 0 else 0.0
+
+        # Position score: mean of (1 - |delta|/tolerance) for matched peaks
+        if matched_peaks_list:
+            position_scores = [
+                max(0.0, 1.0 - abs(mp["delta_two_theta"]) / tolerance_two_theta)
+                for mp in matched_peaks_list
+            ]
+            position_score = round(sum(position_scores) / len(position_scores), 4)
+            mean_delta = round(
+                sum(abs(mp["delta_two_theta"]) for mp in matched_peaks_list) / len(matched_peaks_list),
+                4,
+            )
+        else:
+            position_score = 0.0
+            mean_delta = None
+
+        # Coverage score: ratio of matched to total reference peaks
+        coverage_score = coverage_ratio
+
+        # Chemistry score: 1.0 if no known_elements, else fraction of phase elements in known set
+        phase_elements = set(e.upper() for e in phase.get("elements", []))
+        if known_elem_set and phase_elements:
+            overlap = phase_elements & known_elem_set
+            chemistry_score = round(len(overlap) / len(phase_elements), 4)
+        else:
+            chemistry_score = 1.0  # No constraint → perfect chemistry score
+
+        # Final score: weighted combination
+        # Weights: position=0.50, coverage=0.35, chemistry=0.15
+        final_score = round(
+            0.50 * position_score + 0.35 * coverage_score + 0.15 * chemistry_score,
+            4,
+        )
+
+        candidates.append({
+            "phase_id": phase["phase_id"],
+            "phase_label": phase["phase_label"],
+            "formula": phase["formula"],
+            "structure_family": phase["structure_family"],
+            "elements": phase.get("elements", []),
+            "database_ref": phase.get("database_ref"),
+            "matched_peak_count": matched_peak_count,
+            "reference_peak_count": ref_peak_count,
+            "coverage_ratio": coverage_ratio,
+            "mean_delta_two_theta": mean_delta,
+            "position_score": position_score,
+            "coverage_score": coverage_score,
+            "chemistry_score": chemistry_score,
+            "score": final_score,
+            "matched_peaks": matched_peaks_list,
+        })
+
+    # Sort by final score descending
+    candidates.sort(key=lambda c: c["score"], reverse=True)
+
+    # Determine status and claim_level
+    if not candidates:
+        status = "no_match"
+        claim_level = "none"
+    elif candidates[0]["score"] < min_score:
+        status = "no_match"
+        claim_level = "weak_candidate" if candidates[0]["matched_peak_count"] > 0 else "none"
+    elif known_elements and len(known_elements) > 0:
+        status = "candidate_match"
+        claim_level = "reference_supported_candidate"
+    else:
+        status = "candidate_screening"
+        claim_level = "structure_family_indication"
+
+    primary = candidates[0] if candidates else None
+
+    return {
+        "status": status,
+        "claim_level": claim_level,
+        "phase_confirmed": False,
+        "phase_purity_confirmed": False,
+        "reference_set_id": reference_set_id,
+        "candidate_count": len(candidates),
+        "ranked_candidates": candidates,
+        "primary_candidate": primary,
+        "limitations": [
+            "Candidate match is based on peak-position agreement.",
+            "Chemical identity requires composition-sensitive evidence.",
+            "Phase purity is not confirmed by XRD matching alone.",
+        ],
+    }

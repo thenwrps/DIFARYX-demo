@@ -236,6 +236,10 @@ class XRDProcessResponse(BaseModel):
         default=None,
         description="Phase matching result (if database specified).",
     )
+    reference_match_v2: Optional["XRDReferenceMatchResult"] = Field(
+        default=None,
+        description="Phase 4: v2 reference-match candidate evidence (additive, candidate-only).",
+    )
     sn_ratio: float = Field(
         default=0.0,
         description="Signal-to-noise ratio (max smoothed / noise-floor std).",
@@ -592,6 +596,86 @@ class XRDReferenceMatchParameters(BaseModel):
                 "phase purity claims are not yet validated."
             )
         return self
+
+
+# ============================================================================
+# Phase 4A/4B — Reference-match v2 response models
+#
+# Candidate evidence only.  phase_confirmed and phase_purity_confirmed are
+# ALWAYS false in these models; the system does not yet make confirmed
+# identity or phase-purity claims.
+# ============================================================================
+
+
+class XRDReferencePeak(BaseModel):
+    """A single curated reference peak."""
+    two_theta: float
+    relative_intensity: float = Field(default=100.0, ge=0, le=100)
+    hkl: Optional[str] = None
+    d_spacing: Optional[float] = None
+
+
+class XRDReferencePhase(BaseModel):
+    """A curated reference phase with its peaks."""
+    phase_id: str
+    phase_label: str
+    formula: str
+    structure_family: str
+    elements: List[str] = Field(default_factory=list)
+    database_ref: Optional[str] = None
+    peaks: List[XRDReferencePeak] = Field(default_factory=list)
+
+
+class XRDReferenceSet(BaseModel):
+    """A curated reference set for matching."""
+    reference_set_id: str
+    label: str
+    phases: List[XRDReferencePhase] = Field(default_factory=list)
+
+
+class XRDMatchedPeak(BaseModel):
+    """A paired match between a measured peak and a reference peak."""
+    measured_two_theta: float
+    reference_two_theta: float
+    delta_two_theta: float
+    hkl: Optional[str] = None
+    reference_relative_intensity: Optional[float] = None
+
+
+class XRDReferenceCandidateResult(BaseModel):
+    """Ranking and evidence for a single reference candidate."""
+    phase_id: str
+    phase_label: str
+    formula: str
+    structure_family: str
+    elements: List[str] = Field(default_factory=list)
+    database_ref: Optional[str] = None
+    matched_peak_count: int = 0
+    reference_peak_count: int = 0
+    coverage_ratio: float = 0.0
+    mean_delta_two_theta: Optional[float] = None
+    position_score: float = 0.0
+    coverage_score: float = 0.0
+    chemistry_score: float = 0.0
+    score: float = 0.0
+    matched_peaks: List[XRDMatchedPeak] = Field(default_factory=list)
+
+
+class XRDReferenceMatchResult(BaseModel):
+    """V2 reference-match result.  Candidate evidence only; never confirms phase identity."""
+    status: str = "candidate_match"
+    claim_level: str = "reference_supported_candidate"
+    phase_confirmed: bool = False
+    phase_purity_confirmed: bool = False
+    reference_set_id: str = ""
+    candidate_count: int = 0
+    ranked_candidates: List[XRDReferenceCandidateResult] = Field(default_factory=list)
+    primary_candidate: Optional[XRDReferenceCandidateResult] = None
+    limitations: List[str] = Field(default_factory=lambda: [
+        "Candidate match is based on peak-position agreement.",
+        "Chemical identity requires composition-sensitive evidence.",
+        "Phase purity is not confirmed by XRD matching alone.",
+    ])
 
 
 class XRDBoundaryParameters(BaseModel):

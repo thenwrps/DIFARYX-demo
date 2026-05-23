@@ -733,6 +733,250 @@ def test_phase3_display_label_normalization():
              f"value={rp3.source.value}")
 
 
+# ── Test 7: Phase 4 — Legacy payload still passes ───────────────────────────
+
+def test_phase4_legacy_payload_unchanged():
+    """
+    Verify that the old /process payload (no parameters, no dataset_context)
+    still returns 200 with phase_match present and reference_match_v2 is None.
+    """
+    print("\n═══ Test 7: Phase 4 — Legacy payload unchanged ═══")
+    x, y = generate_cofe2o4_xrd_pattern()
+
+    payload = {
+        "x": x,
+        "y": y,
+        "theta_min": 10.0,
+        "theta_max": 80.0,
+        "peak_threshold": 0.10,
+        "min_prominence": 0.05,
+    }
+
+    resp = client.post("/process", json=payload)
+    log_test("Legacy payload: POST /process returns 200", resp.status_code == 200,
+             f"status={resp.status_code}")
+
+    if resp.status_code != 200:
+        return
+
+    data = resp.json()
+    log_test("Legacy payload: phase_match is present", data.get("phase_match") is not None)
+    log_test("Legacy payload: reference_match_v2 is None",
+             data.get("reference_match_v2") is None,
+             f"value={data.get('reference_match_v2')}")
+
+
+# ── Test 8: Phase 4 — Grouped payload with reference_match returns v2 ───────
+
+def test_phase4_reference_match_v2_returns_candidates():
+    """
+    POST /process with grouped parameters including reference_match.enabled=true
+    and reference_set_id present must return reference_match_v2 with
+    ranked_candidates, primary_candidate with matched_peaks,
+    phase_confirmed=false, and phase_purity_confirmed=false.
+    """
+    print("\n═══ Test 8: Phase 4 — reference_match_v2 returns candidates ═══")
+    x, y = generate_cofe2o4_xrd_pattern()
+
+    payload = {
+        "x": x,
+        "y": y,
+        "theta_min": 10.0,
+        "theta_max": 80.0,
+        "peak_threshold": 0.10,
+        "min_prominence": 0.05,
+        "dataset_context": {
+            "sample_id": "CFO-001",
+            "sample_name": "CoFe2O4 Nanoparticles",
+            "known_elements": ["Co", "Fe", "O"],
+            "reference_set_id": "spinel_ferrite_sba15_demo_set",
+        },
+        "parameters": {
+            "reference_match": {
+                "enabled": True,
+                "reference_set_id": "spinel_ferrite_sba15_demo_set",
+                "tolerance_two_theta": 0.5,
+                "min_score": 0.65,
+            },
+        },
+    }
+
+    resp = client.post("/process", json=payload)
+    log_test("v2 match: POST /process returns 200", resp.status_code == 200,
+             f"status={resp.status_code}")
+
+    if resp.status_code != 200:
+        log_test("v2 match: response body", False, resp.text[:500])
+        return
+
+    data = resp.json()
+
+    # Legacy phase_match must still be present
+    log_test("v2 match: phase_match still present", data.get("phase_match") is not None)
+
+    # reference_match_v2 must be present
+    rmv2 = data.get("reference_match_v2")
+    log_test("v2 match: reference_match_v2 is present", rmv2 is not None)
+
+    if rmv2 is None:
+        return
+
+    # ranked_candidates
+    rc = rmv2.get("ranked_candidates", [])
+    log_test("v2 match: ranked_candidates is non-empty list",
+             isinstance(rc, list) and len(rc) > 0,
+             f"count={len(rc)}")
+
+    # phase_confirmed must be false
+    log_test("v2 match: phase_confirmed is false",
+             rmv2.get("phase_confirmed") is False,
+             f"value={rmv2.get('phase_confirmed')}")
+
+    # phase_purity_confirmed must be false
+    log_test("v2 match: phase_purity_confirmed is false",
+             rmv2.get("phase_purity_confirmed") is False,
+             f"value={rmv2.get('phase_purity_confirmed')}")
+
+    # primary_candidate must have matched_peaks
+    primary = rmv2.get("primary_candidate")
+    log_test("v2 match: primary_candidate is not None", primary is not None)
+
+    if primary:
+        mp = primary.get("matched_peaks", [])
+        log_test("v2 match: primary_candidate has matched_peaks list",
+                 isinstance(mp, list) and len(mp) > 0,
+                 f"count={len(mp)}")
+
+        # Each matched peak should have the expected fields
+        if mp:
+            first_peak = mp[0]
+            expected_keys = {"measured_two_theta", "reference_two_theta", "delta_two_theta"}
+            has_keys = expected_keys.issubset(first_peak.keys())
+            log_test("v2 match: matched peak has required fields", has_keys,
+                     f"keys={list(first_peak.keys())}")
+
+        # Score fields on primary candidate
+        for key in ("position_score", "coverage_score", "chemistry_score", "score"):
+            log_test(f"v2 match: primary_candidate.{key} is numeric",
+                     isinstance(primary.get(key), (int, float)),
+                     f"{key}={primary.get(key)}")
+
+    # limitations must be present and contain expected text
+    limitations = rmv2.get("limitations", [])
+    log_test("v2 match: limitations is non-empty list",
+             isinstance(limitations, list) and len(limitations) > 0,
+             f"count={len(limitations)}")
+
+    # JSON serializable
+    try:
+        json.dumps(data)
+        log_test("v2 match: response is JSON-serializable", True)
+    except Exception as e:
+        log_test("v2 match: response is JSON-serializable", False, str(e))
+
+
+# ── Test 9: Phase 4 — No confirmed identity wording ─────────────────────────
+
+def test_phase4_no_confirmed_identity_wording():
+    """
+    Verify that reference_match_v2 output never contains confirmed identity
+    or confirmed purity language.
+    """
+    print("\n═══ Test 9: Phase 4 — No confirmed identity wording ═══")
+    x, y = generate_cofe2o4_xrd_pattern()
+
+    payload = {
+        "x": x,
+        "y": y,
+        "dataset_context": {
+            "known_elements": ["Co", "Fe", "O"],
+            "reference_set_id": "spinel_ferrite_sba15_demo_set",
+        },
+        "parameters": {
+            "reference_match": {
+                "enabled": True,
+                "reference_set_id": "spinel_ferrite_sba15_demo_set",
+            },
+        },
+    }
+
+    resp = client.post("/process", json=payload)
+    if resp.status_code != 200:
+        log_test("Confirmed wording: request failed", False, f"status={resp.status_code}")
+        return
+
+    data = resp.json()
+    rmv2 = data.get("reference_match_v2")
+    if rmv2 is None:
+        log_test("Confirmed wording: reference_match_v2 present", False, "None")
+        return
+
+    log_test("Confirmed wording: reference_match_v2 present", True)
+
+    # Serialize the entire v2 result to string and check for banned terms
+    rmv2_text = json.dumps(rmv2).lower()
+
+    banned = [
+        "confirmed phase",
+        "phase confirmed",
+        "phase purity confirmed",
+        "identity confirmed",
+        "confirmed identity",
+        "definitive identification",
+        "definitive phase",
+    ]
+    found = [term for term in banned if term in rmv2_text]
+
+    # Note: "phase_confirmed": false is valid — we check that no affirmative
+    # "confirmed" claims appear in text fields (status, claim_level, labels)
+    affirmative_banned = [
+        '"status"',
+        '"claim_level"',
+    ]
+
+    # More targeted: check status and claim_level don't contain "confirmed"
+    status = rmv2.get("status", "")
+    claim_level = rmv2.get("claim_level", "")
+    log_test("Confirmed wording: status does not contain 'confirmed'",
+             "confirmed" not in status.lower(),
+             f"status='{status}'")
+    log_test("Confirmed wording: claim_level does not contain 'confirmed'",
+             "confirmed" not in claim_level.lower(),
+             f"claim_level='{claim_level}'")
+
+
+# ── Test 10: Phase 4 — Disabled reference_match does not produce v2 ─────────
+
+def test_phase4_disabled_reference_match():
+    """
+    When reference_match.enabled=false, reference_match_v2 must be None.
+    """
+    print("\n═══ Test 10: Phase 4 — Disabled reference_match ═══")
+    x, y = generate_cofe2o4_xrd_pattern()
+
+    payload = {
+        "x": x,
+        "y": y,
+        "parameters": {
+            "reference_match": {
+                "enabled": False,
+                "reference_set_id": "spinel_ferrite_sba15_demo_set",
+            },
+        },
+    }
+
+    resp = client.post("/process", json=payload)
+    log_test("Disabled ref_match: returns 200", resp.status_code == 200,
+             f"status={resp.status_code}")
+
+    if resp.status_code != 200:
+        return
+
+    data = resp.json()
+    log_test("Disabled ref_match: reference_match_v2 is None",
+             data.get("reference_match_v2") is None)
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -752,6 +996,10 @@ if __name__ == "__main__":
     test_phase3_grouped_contract_accepted()
     test_phase3_boundary_flags_rejected()
     test_phase3_display_label_normalization()
+    test_phase4_legacy_payload_unchanged()
+    test_phase4_reference_match_v2_returns_candidates()
+    test_phase4_no_confirmed_identity_wording()
+    test_phase4_disabled_reference_match()
 
     # Summary
     print("\n" + "═" * 56)

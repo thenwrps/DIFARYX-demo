@@ -58,6 +58,7 @@ from xrd_engine.domain.models.xrd_params import (
 from xrd_engine.services.reference_db_service import (
     FittedPeak,
     match_peaks,
+    match_reference_candidates,
 )
 from xrd_engine.services.xrd_engine import XRDSignalProcessor
 from api.evidence_router import router as evidence_router
@@ -174,6 +175,7 @@ def _build_config(request: XRDProcessRequest) -> XRDPipelineConfig:
 def _build_response(
     result,
     phase_match_result=None,
+    reference_match_v2_result=None,
 ) -> XRDProcessResponse:
     """
     Convert engine ProcessingResult to an API response model.
@@ -181,6 +183,7 @@ def _build_response(
     Args:
         result: ProcessingResult from XRDSignalProcessor.run().
         phase_match_result: Optional PhaseMatchResult from reference_db_service.
+        reference_match_v2_result: Optional dict from match_reference_candidates.
 
     Returns:
         Serialized XRDProcessResponse.
@@ -235,6 +238,12 @@ def _build_response(
             summary=phase_match_result.summary,
         )
 
+    from api.schemas import XRDReferenceMatchResult
+
+    ref_match_v2_resp: Optional[XRDReferenceMatchResult] = None
+    if reference_match_v2_result is not None:
+        ref_match_v2_resp = XRDReferenceMatchResult(**reference_match_v2_result)
+
     return XRDProcessResponse(
         x=result.x.tolist(),
         y_raw=result.y_raw.tolist(),
@@ -245,6 +254,7 @@ def _build_response(
         detected_peaks=detected,
         fitted_peaks=fitted,
         phase_match=phase_match_resp,
+        reference_match_v2=ref_match_v2_resp,
         sn_ratio=result.sn_ratio,
         baseline_deviation=result.baseline_deviation,
         peak_resolution=result.peak_resolution,
@@ -320,19 +330,64 @@ async def process_xrd(request: XRDProcessRequest):
             )
         t_match = time.perf_counter()
 
+        # Phase 4: v2 reference-match candidate evidence (additive)
+        reference_match_v2_result = None
+        try:
+            ref_params = (request.parameters.reference_match
+                          if request.parameters else None)
+            ctx = request.dataset_context
+            if ref_params and ref_params.enabled and ref_params.reference_set_id:
+                # Prefer fitted_peaks center; fallback to detected_peaks position
+                measured_peaks: List[dict] = []
+                if result.fitted_peaks:
+                    measured_peaks = [
+                        {"center": fp.center}
+                        for fp in result.fitted_peaks
+                    ]
+                elif result.detected_peaks:
+                    measured_peaks = [
+                        {"center": dp.position}
+                        for dp in result.detected_peaks
+                    ]
+
+                # Merge candidate phase IDs from parameters + dataset context
+                candidate_ids = list(ref_params.candidate_phase_ids or [])
+                if ctx and ctx.candidate_phase_ids:
+                    for pid in ctx.candidate_phase_ids:
+                        if pid not in candidate_ids:
+                            candidate_ids.append(pid)
+
+                excluded_ids = list(ctx.excluded_phase_ids) if ctx else []
+
+                reference_match_v2_result = match_reference_candidates(
+                    measured_peaks=measured_peaks,
+                    reference_set_id=ref_params.reference_set_id,
+                    tolerance_two_theta=ref_params.tolerance_two_theta,
+                    candidate_phase_ids=candidate_ids or None,
+                    excluded_phase_ids=excluded_ids or None,
+                    known_elements=list(ctx.known_elements) if ctx else None,
+                    min_score=ref_params.min_score,
+                )
+        except Exception as exc:
+            logger.warning("Phase 4 reference_match_v2 failed (non-fatal): %s", exc)
+            reference_match_v2_result = None
+
+        t_ref_v2 = time.perf_counter()
+
         n_points = len(request.x)
         n_det = len(result.detected_peaks)
         n_fit = len(result.fitted_peaks)
         logger.info(
             "XRD pipeline: %d points → %d detected, %d fitted | "
-            "process=%.3fs, match=%.3fs, total=%.3fs",
+            "process=%.3fs, match=%.3fs, ref_v2=%.3fs, total=%.3fs",
             n_points, n_det, n_fit,
             t_process - t0,
             t_match - t_process,
-            t_match - t0,
+            t_ref_v2 - t_match,
+            t_ref_v2 - t0,
         )
 
-        return _build_response(result, phase_match_result)
+        return _build_response(result, phase_match_result, reference_match_v2_result)
 
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
