@@ -58,6 +58,7 @@ import {
   saveAgentDiscussionRefinement,
   saveNotebookEntry,
   saveProcessingResult,
+  type NotebookEntry,
 } from '../data/workflowPipeline';
 import { LeftSidebar } from '../components/agent-demo/LeftSidebar';
 import { MainHeader } from '../components/agent-demo/MainHeader';
@@ -958,6 +959,10 @@ function formatAgentNumber(value: number | undefined | null, digits = 2) {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : null;
 }
 
+function finiteAgentNumber(value: number | undefined | null): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
 function buildReferenceCandidateAgentEvidence(summary: XRDReferenceMatchV2SummaryForAgent) {
   const primaryCandidate = summary.primaryCandidate;
   const candidateLabel = safeReferenceCandidateText(primaryCandidate?.phaseLabel);
@@ -1020,6 +1025,73 @@ function buildReferenceCandidateAgentEvidence(summary: XRDReferenceMatchV2Summar
     candidateLabel,
     formula,
     claimLevel,
+  };
+}
+
+function buildNotebookReferenceCandidateEvidence(
+  summary: XRDReferenceMatchV2SummaryForAgent,
+): NotebookEntry['xrdReferenceMatchV2Summary'] {
+  const candidateEvidence = buildReferenceCandidateAgentEvidence(summary);
+  const primaryCandidate = summary.primaryCandidate;
+  const phaseLabel = safeReferenceCandidateText(primaryCandidate?.phaseLabel);
+  const formula = safeReferenceCandidateText(primaryCandidate?.formula);
+  const structureFamily = safeReferenceCandidateText(primaryCandidate?.structureFamily);
+  const databaseRef = safeReferenceCandidateText(primaryCandidate?.databaseRef);
+  const score = finiteAgentNumber(primaryCandidate?.score);
+  const matchedPeakCount = finiteAgentNumber(primaryCandidate?.matchedPeakCount);
+  const referencePeakCount = finiteAgentNumber(primaryCandidate?.referencePeakCount);
+  const coverageRatio = finiteAgentNumber(primaryCandidate?.coverageRatio);
+  const meanDeltaTwoTheta = finiteAgentNumber(primaryCandidate?.meanDeltaTwoTheta);
+
+  const notebookPrimaryCandidate = primaryCandidate
+    ? {
+        ...(phaseLabel ? { phaseLabel } : {}),
+        ...(formula ? { formula } : {}),
+        ...(structureFamily ? { structureFamily } : {}),
+        ...(databaseRef ? { databaseRef } : {}),
+        ...(score !== undefined ? { score } : {}),
+        ...(matchedPeakCount !== undefined ? { matchedPeakCount } : {}),
+        ...(referencePeakCount !== undefined ? { referencePeakCount } : {}),
+        ...(coverageRatio !== undefined ? { coverageRatio } : {}),
+        meanDeltaTwoTheta: meanDeltaTwoTheta ?? null,
+      }
+    : undefined;
+
+  const matchedPeaksPreview = summary.matchedPeaksPreview
+    ?.slice(0, 5)
+    .map((peak) => {
+      const measuredTwoTheta = finiteAgentNumber(peak.measuredTwoTheta);
+      const referenceTwoTheta = finiteAgentNumber(peak.referenceTwoTheta);
+      const deltaTwoTheta = finiteAgentNumber(peak.deltaTwoTheta);
+      if (
+        measuredTwoTheta === undefined ||
+        referenceTwoTheta === undefined ||
+        deltaTwoTheta === undefined
+      ) {
+        return null;
+      }
+      return {
+        measuredTwoTheta,
+        referenceTwoTheta,
+        deltaTwoTheta,
+        hkl: safeReferenceCandidateText(peak.hkl),
+        referenceRelativeIntensity: finiteAgentNumber(peak.referenceRelativeIntensity) ?? null,
+      };
+    })
+    .filter((peak): peak is NonNullable<NonNullable<NotebookEntry['xrdReferenceMatchV2Summary']>['matchedPeaksPreview']>[number] => Boolean(peak));
+
+  return {
+    label: 'Reference candidate evidence',
+    status: safeReferenceCandidateText(summary.status) ?? 'candidate evidence',
+    claimLevel: candidateEvidence.claimLevel,
+    ...(safeReferenceCandidateText(summary.referenceSetId) ? { referenceSetId: safeReferenceCandidateText(summary.referenceSetId) as string } : {}),
+    ...(finiteAgentNumber(summary.candidateCount) !== undefined ? { candidateCount: finiteAgentNumber(summary.candidateCount) } : {}),
+    ...(notebookPrimaryCandidate && Object.keys(notebookPrimaryCandidate).length > 0 ? { primaryCandidate: notebookPrimaryCandidate } : {}),
+    ...(matchedPeaksPreview && matchedPeaksPreview.length > 0 ? { matchedPeaksPreview } : {}),
+    limitations: candidateEvidence.limitations,
+    phaseConfirmed: false,
+    phasePurityConfirmed: false,
+    savedAt: safeReferenceCandidateText(summary.savedAt) ?? undefined,
   };
 }
 
@@ -2296,6 +2368,9 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
     const refinement = refineDiscussionFromProcessing(workflowProcessingResult, templateMode);
     saveAgentDiscussionRefinement(refinement);
     const notebookEntry = createNotebookEntryFromRefinement(refinement, templateMode);
+    const xrdReferenceMatchV2Summary = xrdBackendEvidence?.referenceMatchV2Summary
+      ? buildNotebookReferenceCandidateEvidence(xrdBackendEvidence.referenceMatchV2Summary)
+      : undefined;
 
     const entryToSave = xrdBackendEvidence
       ? {
@@ -2314,6 +2389,7 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
             caveat: 'Phase purity requires reference validation and/or complementary evidence.',
             scientificEvidenceSummary: xrdBackendEvidence.scientificEvidenceSummary,
           },
+          ...(xrdReferenceMatchV2Summary ? { xrdReferenceMatchV2Summary } : {}),
         }
       : notebookEntry;
 

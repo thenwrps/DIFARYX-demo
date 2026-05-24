@@ -131,6 +131,50 @@ function formatClaimStatus(status: string): string {
   }
 }
 
+const NOTEBOOK_REFERENCE_CANDIDATE_BOUNDARY_LINES = [
+  'Candidate evidence only',
+  'Not identity confirmation',
+  'Not phase purity confirmation',
+  'Composition-sensitive evidence required for stronger assignment',
+];
+
+const NOTEBOOK_REFERENCE_CANDIDATE_FALLBACK_LIMITATIONS = [
+  'Candidate match is based on peak-position agreement.',
+  'Chemical identity requires composition-sensitive evidence.',
+  'Phase purity is outside this XRD-only candidate evidence.',
+];
+
+function isBlockedNotebookReferenceCandidatePhrase(value: string) {
+  const normalized = value.toLowerCase();
+  return (
+    (normalized.includes('confirmed') && normalized.includes('phase')) ||
+    (normalized.includes('confirmed') && normalized.includes('identity')) ||
+    (normalized.includes('identified') && normalized.includes(' as ')) ||
+    (normalized.includes('pure') && normalized.includes('phase')) ||
+    (normalized.includes('definitive') && normalized.includes('match'))
+  );
+}
+
+function safeNotebookReferenceCandidateText(value: string | undefined | null): string | null {
+  const normalized = value?.trim();
+  if (!normalized) return null;
+  return isBlockedNotebookReferenceCandidatePhrase(normalized) ? null : normalized;
+}
+
+function formatNotebookReferenceNumber(value: number | undefined | null, digits = 2): string | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : null;
+}
+
+function formatNotebookReferenceTimestamp(value: string | undefined | null): string {
+  if (!value) return 'timestamp pending';
+  try {
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? 'timestamp pending' : d.toLocaleString();
+  } catch {
+    return 'timestamp pending';
+  }
+}
+
 /**
  * Safe confidence display: returns the mapped claim-status label when it
  * resolves to a known phrase; otherwise derives a neutral fallback from
@@ -2226,6 +2270,133 @@ ${approvalLedgerMarkdown}
                       <p className="mt-1.5 text-[11px] text-amber-700 font-medium">{xbe.caveat}</p>
                       <p className="mt-0.5 text-[10px] text-text-dim">
                         Saved: {formatSavedAt} · Validation-limited notebook entry
+                      </p>
+                    </div>
+                  );
+                })()}
+                {workflowNotebookEntry?.xrdReferenceMatchV2Summary && (() => {
+                  const rm = workflowNotebookEntry.xrdReferenceMatchV2Summary;
+                  const primary = rm.primaryCandidate;
+                  const status = safeNotebookReferenceCandidateText(rm.status) ?? 'candidate evidence';
+                  const claimLevel = safeNotebookReferenceCandidateText(rm.claimLevel) ?? 'candidate evidence';
+                  const referenceSet = safeNotebookReferenceCandidateText(rm.referenceSetId);
+                  const phaseLabel = safeNotebookReferenceCandidateText(primary?.phaseLabel);
+                  const formula = safeNotebookReferenceCandidateText(primary?.formula);
+                  const structureFamily = safeNotebookReferenceCandidateText(primary?.structureFamily);
+                  const databaseRef = safeNotebookReferenceCandidateText(primary?.databaseRef);
+                  const score = formatNotebookReferenceNumber(primary?.score);
+                  const coverageRatio = formatNotebookReferenceNumber(primary?.coverageRatio);
+                  const meanDelta = formatNotebookReferenceNumber(primary?.meanDeltaTwoTheta);
+                  const matchedPeakCount = typeof primary?.matchedPeakCount === 'number' && Number.isFinite(primary.matchedPeakCount)
+                    ? primary.matchedPeakCount
+                    : null;
+                  const referencePeakCount = typeof primary?.referencePeakCount === 'number' && Number.isFinite(primary.referencePeakCount)
+                    ? primary.referencePeakCount
+                    : null;
+                  const matchedPeakLabel = matchedPeakCount !== null
+                    ? `${matchedPeakCount}${referencePeakCount !== null ? ` / ${referencePeakCount}` : ''}`
+                    : null;
+                  const candidateCount = typeof rm.candidateCount === 'number' && Number.isFinite(rm.candidateCount)
+                    ? rm.candidateCount
+                    : null;
+                  const matchedPeakRows = (Array.isArray(rm.matchedPeaksPreview) ? rm.matchedPeaksPreview : [])
+                    .slice(0, 5)
+                    .map((peak) => {
+                      const measured = formatNotebookReferenceNumber(peak.measuredTwoTheta);
+                      const reference = formatNotebookReferenceNumber(peak.referenceTwoTheta);
+                      const delta = formatNotebookReferenceNumber(peak.deltaTwoTheta);
+                      if (!measured || !reference || !delta) return null;
+                      return {
+                        measured,
+                        reference,
+                        delta,
+                        hkl: safeNotebookReferenceCandidateText(peak.hkl) ?? 'N/A',
+                        intensity: formatNotebookReferenceNumber(peak.referenceRelativeIntensity, 0) ?? 'N/A',
+                      };
+                    })
+                    .filter((peak): peak is { measured: string; reference: string; delta: string; hkl: string; intensity: string } => Boolean(peak));
+                  const limitations = (Array.isArray(rm.limitations) ? rm.limitations : [])
+                    .map((limitation) => safeNotebookReferenceCandidateText(limitation))
+                    .filter((limitation): limitation is string => Boolean(limitation));
+                  const displayLimitations = limitations.length > 0
+                    ? limitations
+                    : NOTEBOOK_REFERENCE_CANDIDATE_FALLBACK_LIMITATIONS;
+                  return (
+                    <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <div className="text-[10px] font-semibold uppercase tracking-wider text-primary">Reference Candidate Evidence</div>
+                          <p className="mt-0.5 text-xs text-text-muted">
+                            Candidate-level agreement with selected reference evidence.
+                          </p>
+                        </div>
+                        <span className="rounded-full border border-primary/25 bg-surface px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
+                          {status}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {NOTEBOOK_REFERENCE_CANDIDATE_BOUNDARY_LINES.map((line) => (
+                          <span key={line} className="rounded border border-amber-500/25 bg-amber-500/5 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                            {line}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-3 lg:grid-cols-4">
+                        <div><span className="text-text-dim">Claim level:</span> <span className="font-semibold text-text-main">{claimLevel}</span></div>
+                        {referenceSet && <div><span className="text-text-dim">Reference set:</span> <span className="font-semibold text-text-main">{referenceSet}</span></div>}
+                        {candidateCount !== null && <div><span className="text-text-dim">Candidates:</span> <span className="font-semibold text-text-main">{candidateCount}</span></div>}
+                        {score && <div><span className="text-text-dim">Score:</span> <span className="font-semibold text-text-main">{score}</span></div>}
+                        {matchedPeakLabel && <div><span className="text-text-dim">Matched peaks:</span> <span className="font-semibold text-text-main">{matchedPeakLabel}</span></div>}
+                        {coverageRatio && <div><span className="text-text-dim">Coverage ratio:</span> <span className="font-semibold text-text-main">{coverageRatio}</span></div>}
+                        {meanDelta && <div><span className="text-text-dim">Mean delta 2theta:</span> <span className="font-semibold text-text-main">{meanDelta}</span></div>}
+                      </div>
+                      {(phaseLabel || formula || structureFamily || databaseRef) && (
+                        <div className="mt-1.5 rounded border border-primary/15 bg-surface px-2 py-1 text-xs">
+                          {(phaseLabel || formula) && (
+                            <div>
+                              <span className="text-text-dim">Primary candidate:</span>{' '}
+                              <span className="font-semibold text-text-main">
+                                {phaseLabel}
+                                {phaseLabel && formula ? ' / ' : ''}
+                                {formula ? formatChemicalFormula(formula) : null}
+                              </span>
+                            </div>
+                          )}
+                          {structureFamily && (
+                            <div><span className="text-text-dim">Structure family:</span> <span className="text-text-main">{structureFamily}</span></div>
+                          )}
+                          {databaseRef && (
+                            <div><span className="text-text-dim">Database ref:</span> <span className="text-text-main">{databaseRef}</span></div>
+                          )}
+                        </div>
+                      )}
+                      {matchedPeakRows.length > 0 && (
+                        <div className="mt-2 overflow-hidden rounded border border-border bg-surface text-[11px]">
+                          <div className="grid grid-cols-5 gap-1 border-b border-border px-2 py-1 font-semibold text-text-dim">
+                            <span>Measured 2theta</span>
+                            <span>Reference 2theta</span>
+                            <span>Delta 2theta</span>
+                            <span>hkl</span>
+                            <span>Ref. intensity</span>
+                          </div>
+                          {matchedPeakRows.map((peak, index) => (
+                            <div key={`${peak.measured}-${peak.reference}-${index}`} className="grid grid-cols-5 gap-1 px-2 py-1 text-text-main odd:bg-background/60">
+                              <span>{peak.measured}</span>
+                              <span>{peak.reference}</span>
+                              <span>{peak.delta}</span>
+                              <span>{peak.hkl}</span>
+                              <span>{peak.intensity}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="mt-2 space-y-0.5">
+                        {displayLimitations.slice(0, 4).map((limitation) => (
+                          <p key={limitation} className="text-[11px] leading-snug text-text-muted">- {limitation}</p>
+                        ))}
+                      </div>
+                      <p className="mt-1.5 text-[10px] text-text-dim">
+                        Saved: {formatNotebookReferenceTimestamp(rm.savedAt)}
                       </p>
                     </div>
                   );

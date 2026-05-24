@@ -10,9 +10,15 @@ import {
   getConditionBoundaryNotes,
   getLatestExperimentConditionLock,
 } from './experimentConditionLock';
+import type { XRDReferenceMatchV2EvidenceSummary } from './xrdBackendEvidence';
 
 export type NotebookTemplateMode = 'research' | 'rd' | 'analytical';
 export type ReportTemplate = 'manuscript' | 'technical_report' | 'analytical_report';
+
+export interface NotebookXrdReferenceMatchV2Summary extends Omit<XRDReferenceMatchV2EvidenceSummary, 'savedAt'> {
+  label: 'Reference candidate evidence';
+  savedAt?: string;
+}
 
 export interface NotebookTemplate {
   mode: NotebookTemplateMode;
@@ -108,6 +114,7 @@ export interface NotebookEntry {
       claimBoundary: 'validation-limited scientific claim';
     };
   };
+  xrdReferenceMatchV2Summary?: NotebookXrdReferenceMatchV2Summary;
 }
 
 export interface ReportSection {
