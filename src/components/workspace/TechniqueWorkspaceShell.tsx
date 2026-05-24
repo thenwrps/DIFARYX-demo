@@ -99,6 +99,7 @@ import {
 import type { XRDNormalizedResult, XRDReferenceMatchV2, XRDReferenceMatchV2Candidate } from '../../types/xrdBackend';
 import type { XRDDatasetContext } from '../../types/xrdDatasetContext';
 import type { XRDParameters } from '../../types/xrdParameters';
+import { PLANNED_XRD_LOCAL_REFERENCES } from '../../types/xrdLocalReference';
 import { saveXrdBackendEvidenceResult } from '../../data/xrdBackendEvidence';
 import { runRamanProcessing } from '../../agents/ramanAgent/runner';
 import { getRamanProcessingParams, getRamanParameterSnapshot } from '../../utils/ramanParameterAdapter';
@@ -3253,6 +3254,37 @@ function XRDParametersPanel({
         <div className="mt-2 space-y-1">
           <Metric label="Identity claim" value={parameters.referenceMatch.allowIdentityClaim ? 'Enabled' : 'Blocked'} />
           <Metric label="Phase purity claim" value={parameters.referenceMatch.allowPhasePurityClaim ? 'Enabled' : 'Blocked'} />
+        </div>
+      </Panel>
+
+      <Panel title="Project / Uploaded Local References" icon={<Layers size={13} />}>
+        <div className="space-y-1.5">
+          <XRDStatusText tone="info">
+            Uploaded local references are planned.
+          </XRDStatusText>
+          <XRDStatusText tone="warning">
+            They are not used for backend matching in this phase.
+          </XRDStatusText>
+          <XRDStatusText tone="neutral">
+            Current backend matching uses active curated reference sets only.
+          </XRDStatusText>
+        </div>
+        <div className="mt-2 space-y-1">
+          <p className="text-[9px] font-bold uppercase tracking-wide text-text-muted">Planned local reference entries</p>
+          {PLANNED_XRD_LOCAL_REFERENCES.map((localRef) => (
+            <div key={localRef.id} className="rounded border border-border bg-surface-alt px-2 py-1.5">
+              <p className="text-[10px] font-semibold text-text-main">{localRef.label}</p>
+              <p className="text-[9px] text-text-muted">Status: {localRef.validationStatus}</p>
+              <p className="text-[9px] text-text-muted">Backend available: {localRef.backendAvailable ? 'Yes' : 'No'}</p>
+              {localRef.notes.length > 0 && (
+                <ul className="mt-1 space-y-0.5 text-[9px] leading-relaxed text-text-muted">
+                  {localRef.notes.map((note, idx) => (
+                    <li key={idx}>• {note}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
         </div>
       </Panel>
 
