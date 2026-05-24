@@ -14,6 +14,43 @@ export type XRDLocalReferenceValidationStatus =
   | "validated_for_project"
   | "not_supported_yet";
 
+export interface XRDLocalReferencePeak {
+  twoTheta: number;
+  relativeIntensity?: number;
+  hkl?: string;
+  dSpacing?: number;
+}
+
+export type XRDLocalReferenceParseStatus =
+  | "not_uploaded"
+  | "parsed_preview"
+  | "parse_error"
+  | "not_supported_yet";
+
+export interface XRDLocalReferenceValidation {
+  hasTwoTheta: boolean;
+  hasAtLeastThreePeaks: boolean;
+  hasRelativeIntensity: boolean;
+  hasRequiredMetadata: boolean;
+  warnings: string[];
+  errors: string[];
+}
+
+export interface XRDLocalReferenceParseResult {
+  sourceFileName: string;
+  sourceFileType?: ".csv" | ".txt" | ".xy" | ".dat";
+  parsedAt: string;
+  status: XRDLocalReferenceParseStatus;
+  referenceLabel?: string;
+  formula?: string;
+  materialFamily?: string;
+  elements: string[];
+  peaks: XRDLocalReferencePeak[];
+  validation: XRDLocalReferenceValidation;
+  backendAvailable: false;
+  usedForMatching: false;
+}
+
 export interface XRDLocalReferenceMetadata {
   id: string;
   label: string;
@@ -27,6 +64,41 @@ export interface XRDLocalReferenceMetadata {
   validationStatus: XRDLocalReferenceValidationStatus;
   backendAvailable: false;
   notes: string[];
+}
+
+export function createEmptyXrdLocalReferenceParseResult(): XRDLocalReferenceParseResult {
+  return {
+    sourceFileName: "",
+    parsedAt: new Date(0).toISOString(),
+    status: "not_uploaded",
+    elements: [],
+    peaks: [],
+    validation: {
+      hasTwoTheta: false,
+      hasAtLeastThreePeaks: false,
+      hasRelativeIntensity: false,
+      hasRequiredMetadata: false,
+      warnings: [],
+      errors: [],
+    },
+    backendAvailable: false,
+    usedForMatching: false,
+  };
+}
+
+export function getXrdLocalReferenceValidationStatusLabel(status: XRDLocalReferenceParseStatus): string {
+  switch (status) {
+    case "not_uploaded":
+      return "Not uploaded";
+    case "parsed_preview":
+      return "Parsed preview";
+    case "parse_error":
+      return "Parse error";
+    case "not_supported_yet":
+      return "Backend matching not supported yet";
+    default:
+      return status;
+  }
 }
 
 /**

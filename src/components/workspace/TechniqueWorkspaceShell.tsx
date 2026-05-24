@@ -99,7 +99,11 @@ import {
 import type { XRDNormalizedResult, XRDReferenceMatchV2, XRDReferenceMatchV2Candidate } from '../../types/xrdBackend';
 import type { XRDDatasetContext } from '../../types/xrdDatasetContext';
 import type { XRDParameters } from '../../types/xrdParameters';
-import { PLANNED_XRD_LOCAL_REFERENCES } from '../../types/xrdLocalReference';
+import {
+  PLANNED_XRD_LOCAL_REFERENCES,
+  createEmptyXrdLocalReferenceParseResult,
+  getXrdLocalReferenceValidationStatusLabel,
+} from '../../types/xrdLocalReference';
 import { saveXrdBackendEvidenceResult } from '../../data/xrdBackendEvidence';
 import { runRamanProcessing } from '../../agents/ramanAgent/runner';
 import { getRamanProcessingParams, getRamanParameterSnapshot } from '../../utils/ramanParameterAdapter';
@@ -127,6 +131,22 @@ function debugXrdReprocessTrace(message: string, details?: Record<string, unknow
     console.info(`[xrd-reprocess] ${message}`, details ?? {});
   }
 }
+
+const XRD_LOCAL_REFERENCE_ACCEPTED_FORMATS = ['.csv', '.txt', '.xy', '.dat'];
+
+const XRD_LOCAL_REFERENCE_EXPECTED_COLUMNS = [
+  { column: 'two_theta', requirement: 'Required', detail: 'Reference peak position in degrees 2theta.' },
+  { column: 'relative_intensity', requirement: 'Optional', detail: 'Relative peak intensity, usually 0-100.' },
+  { column: 'hkl', requirement: 'Optional', detail: 'Miller index label for the reference reflection.' },
+  { column: 'd_spacing', requirement: 'Optional', detail: 'Reference d-spacing in angstroms.' },
+];
+
+const XRD_LOCAL_REFERENCE_STATUS_PREVIEW = [
+  { label: 'Not uploaded', detail: 'No local reference file is attached.' },
+  { label: 'Uploaded/unvalidated planned', detail: 'Future local parser will inspect columns and metadata.' },
+  { label: 'Parsed preview planned', detail: 'Future preview may show peak rows without enabling backend matching.' },
+  { label: 'Backend matching not supported yet', detail: 'Only active curated reference sets are sent for matching.' },
+];
 
 const GRAPH_TOOLS: Array<{ id: GraphToolId; label: string; Icon: React.ElementType }> = [
   { id: 'pan', label: 'Pan', Icon: Move },
@@ -2869,6 +2889,7 @@ function XRDParametersPanel({
     datasetContext,
     parameters,
   });
+  const localReferenceParsePreview = createEmptyXrdLocalReferenceParseResult();
 
   function updateParameterStage<TStage extends keyof XRDParameters>(
     stage: TStage,
@@ -3260,15 +3281,95 @@ function XRDParametersPanel({
       <Panel title="Project / Uploaded Local References" icon={<Layers size={13} />}>
         <div className="space-y-1.5">
           <XRDStatusText tone="info">
-            Uploaded local references are planned.
+            Uploaded local references are design-only in this phase.
           </XRDStatusText>
           <XRDStatusText tone="warning">
-            They are not used for backend matching in this phase.
+            Uploaded local references are not used for backend matching in this phase.
           </XRDStatusText>
           <XRDStatusText tone="neutral">
             Current backend matching uses active curated reference sets only.
           </XRDStatusText>
         </div>
+
+        <div className="mt-2 rounded border border-dashed border-blue-200 bg-blue-50 px-2 py-2">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-bold text-blue-950">Upload local reference pattern</p>
+              <p className="mt-0.5 text-[10px] leading-relaxed text-blue-900">
+                Accepted formats: {XRD_LOCAL_REFERENCE_ACCEPTED_FORMATS.join(', ')}
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-800">
+              Planned
+            </span>
+          </div>
+          <label className="mt-2 block rounded border border-blue-100 bg-white/70 px-2 py-1.5 opacity-80">
+            <XRDFieldLabel label="Local reference file" />
+            <input
+              type="file"
+              accept={XRD_LOCAL_REFERENCE_ACCEPTED_FORMATS.join(',')}
+              disabled
+              className="mt-1 block w-full text-[10px] text-text-muted file:mr-2 file:rounded file:border-0 file:bg-slate-100 file:px-2 file:py-1 file:text-[10px] file:font-bold file:text-text-muted disabled:cursor-not-allowed"
+            />
+          </label>
+          <div className="mt-2 grid grid-cols-2 gap-1">
+            <Metric label="Status" value="Planned / not active for backend matching" />
+            <Metric
+              label="Parse status"
+              value={getXrdLocalReferenceValidationStatusLabel(localReferenceParsePreview.status)}
+            />
+            <Metric label="Backend available" value="No" />
+            <Metric label="Used for matching" value="No" />
+          </div>
+        </div>
+
+        <div className="mt-2 rounded border border-border bg-background px-2 py-2">
+          <p className="text-[9px] font-bold uppercase tracking-wide text-text-muted">Parser contract preview</p>
+          <div className="mt-1 space-y-1">
+            {XRD_LOCAL_REFERENCE_EXPECTED_COLUMNS.map((column) => (
+              <div key={column.column} className="rounded border border-border bg-surface-alt px-2 py-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-[10px] font-bold text-text-main">{column.column}</span>
+                  <span className="rounded-full border border-border bg-background px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-text-muted">
+                    {column.requirement}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-[9px] leading-relaxed text-text-muted">{column.detail}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 rounded border border-slate-200 bg-slate-50 px-2 py-1.5">
+            <p className="text-[9px] font-bold uppercase tracking-wide text-text-muted">Minimum reference requirements</p>
+            <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-text-muted">
+              <li>- At least 3 reference peaks recommended.</li>
+              <li>- Metadata recommended: label, formula or material family, and elements.</li>
+              <li>- Relative intensity improves preview quality but remains optional.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="mt-2 rounded border border-border bg-background px-2 py-2">
+          <p className="text-[9px] font-bold uppercase tracking-wide text-text-muted">Validation statuses</p>
+          <div className="mt-1 space-y-1">
+            {XRD_LOCAL_REFERENCE_STATUS_PREVIEW.map((status) => (
+              <div key={status.label} className="rounded border border-border bg-surface-alt px-2 py-1">
+                <p className="text-[10px] font-semibold text-text-main">{status.label}</p>
+                <p className="text-[9px] leading-relaxed text-text-muted">{status.detail}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
+          <p className="text-[9px] font-bold uppercase tracking-wide text-amber-900">Boundary</p>
+          <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-amber-900">
+            <li>Uploaded local references are not used for backend matching in this phase.</li>
+            <li>Current backend matching uses active curated reference sets only.</li>
+            <li>Previewed reference peaks are not chemical identity confirmation.</li>
+            <li>Phase purity is not confirmed.</li>
+          </ul>
+        </div>
+
         <div className="mt-2 space-y-1">
           <p className="text-[9px] font-bold uppercase tracking-wide text-text-muted">Planned local reference entries</p>
           {PLANNED_XRD_LOCAL_REFERENCES.map((localRef) => (
