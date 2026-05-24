@@ -64,6 +64,8 @@ export type XRDReferenceMatchV2Status =
   | 'candidate_match'
   | 'candidate_screening'
   | 'no_match'
+  | 'unavailable'
+  | 'blocked'
   | string;
 
 export type XRDReferenceMatchV2ClaimLevel =
@@ -110,6 +112,8 @@ export interface XRDReferenceMatchV2 {
   candidate_count?: number | null;
   ranked_candidates?: XRDReferenceMatchV2Candidate[];
   primary_candidate?: XRDReferenceMatchV2Candidate | null;
+  backend_available?: boolean;
+  reason?: string | null;
   limitations?: string[];
   [key: string]: unknown;
 }

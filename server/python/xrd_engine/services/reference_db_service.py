@@ -563,6 +563,7 @@ def match_reference_candidates(
     """
     from typing import Optional as _Optional, List as _List
 
+    # Case A: missing or unknown reference set
     phases = get_reference_set(reference_set_id)
     if not phases:
         return {
@@ -574,8 +575,9 @@ def match_reference_candidates(
             "candidate_count": 0,
             "ranked_candidates": [],
             "primary_candidate": None,
+            "backend_available": False,
+            "reason": f"Reference set '{reference_set_id}' is not available in the backend reference registry.",
             "limitations": [
-                f"Reference set '{reference_set_id}' not found.",
                 "Candidate match is based on peak-position agreement.",
                 "Chemical identity requires composition-sensitive evidence.",
                 "Phase purity is not confirmed by XRD matching alone.",
@@ -590,6 +592,7 @@ def match_reference_candidates(
     else:
         phases = [p for p in phases if p["phase_id"] not in excluded]
 
+    # Case B: no phases after filtering
     if not phases:
         return {
             "status": "no_match",
@@ -600,8 +603,9 @@ def match_reference_candidates(
             "candidate_count": 0,
             "ranked_candidates": [],
             "primary_candidate": None,
+            "backend_available": True,
+            "reason": "No reference phases available after candidate/exclusion filtering.",
             "limitations": [
-                "No reference phases available after filtering.",
                 "Candidate match is based on peak-position agreement.",
                 "Chemical identity requires composition-sensitive evidence.",
                 "Phase purity is not confirmed by XRD matching alone.",
@@ -615,6 +619,7 @@ def match_reference_candidates(
         if pos is not None:
             mp_positions.append(float(pos))
 
+    # Case C: no measured peaks
     if not mp_positions:
         return {
             "status": "no_match",
@@ -625,8 +630,9 @@ def match_reference_candidates(
             "candidate_count": 0,
             "ranked_candidates": [],
             "primary_candidate": None,
+            "backend_available": True,
+            "reason": "No measured peak positions available for reference matching.",
             "limitations": [
-                "No measured peak positions available for matching.",
                 "Candidate match is based on peak-position agreement.",
                 "Chemical identity requires composition-sensitive evidence.",
                 "Phase purity is not confirmed by XRD matching alone.",

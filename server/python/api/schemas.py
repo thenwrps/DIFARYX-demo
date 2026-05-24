@@ -752,7 +752,12 @@ class XRDReferenceCandidateResult(BaseModel):
 
 
 class XRDReferenceMatchResult(BaseModel):
-    """V2 reference-match result.  Candidate evidence only; never confirms phase identity."""
+    """V2 reference-match result.  Candidate evidence only; never confirms phase identity.
+
+    Phase 7C additions:
+        - backend_available: False if reference set missing/unavailable
+        - reason: Explicit message for unavailable/blocked/no_match cases
+    """
     status: str = "candidate_match"
     claim_level: str = "reference_supported_candidate"
     phase_confirmed: bool = False
@@ -761,6 +766,14 @@ class XRDReferenceMatchResult(BaseModel):
     candidate_count: int = 0
     ranked_candidates: List[XRDReferenceCandidateResult] = Field(default_factory=list)
     primary_candidate: Optional[XRDReferenceCandidateResult] = None
+    backend_available: bool = Field(
+        default=True,
+        description="False if reference set is missing or unavailable in backend registry."
+    )
+    reason: Optional[str] = Field(
+        default=None,
+        description="Explicit status reason for unavailable/blocked/no_match cases."
+    )
     limitations: List[str] = Field(default_factory=lambda: [
         "Candidate match is based on peak-position agreement.",
         "Chemical identity requires composition-sensitive evidence.",

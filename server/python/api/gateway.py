@@ -348,7 +348,27 @@ async def process_xrd(request: XRDProcessRequest):
             ref_params = (request.parameters.reference_match
                           if request.parameters else None)
             ctx = request.dataset_context
-            if ref_params and ref_params.enabled and ref_params.reference_set_id:
+
+            # Case: enabled but no reference_set_id → blocked
+            if ref_params and ref_params.enabled and not ref_params.reference_set_id:
+                reference_match_v2_result = {
+                    "status": "blocked",
+                    "claim_level": "none",
+                    "phase_confirmed": False,
+                    "phase_purity_confirmed": False,
+                    "reference_set_id": "",
+                    "candidate_count": 0,
+                    "ranked_candidates": [],
+                    "primary_candidate": None,
+                    "backend_available": False,
+                    "reason": "Reference matching requires a selected reference set.",
+                    "limitations": [
+                        "Candidate match is based on peak-position agreement.",
+                        "Chemical identity requires composition-sensitive evidence.",
+                        "Phase purity is not confirmed by XRD matching alone.",
+                    ],
+                }
+            elif ref_params and ref_params.enabled and ref_params.reference_set_id:
                 # Prefer fitted_peaks center; fallback to detected_peaks position
                 measured_peaks: List[dict] = []
                 if result.fitted_peaks:

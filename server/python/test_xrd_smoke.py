@@ -1383,6 +1383,204 @@ def test_phase7a_flat_signal():
              f"value='{im}'")
 
 
+# ── Test 18: Phase 7C — Blocked: reference_match enabled but no reference_set_id ──
+
+def test_phase7c_blocked_no_reference_set_id():
+    """Enabled reference_match without reference_set_id returns blocked status."""
+    print("\n═══ Test 18: Phase 7C — Blocked: no reference_set_id ═══")
+    x, y = generate_cofe2o4_xrd_pattern()
+
+    payload = {
+        "x": x, "y": y,
+        "theta_min": 10.0, "theta_max": 80.0,
+        "parameters": {
+            "reference_match": {
+                "enabled": True,
+                "reference_set_id": None,  # Explicitly None to test blocked case
+            },
+        },
+    }
+
+    resp = client.post("/process", json=payload)
+    log_test("Blocked: POST /process returns 200", resp.status_code == 200,
+             f"status={resp.status_code}")
+    if resp.status_code != 200:
+        return
+
+    data = resp.json()
+    rmv2 = data.get("reference_match_v2")
+    log_test("Blocked: reference_match_v2 present", rmv2 is not None)
+    if rmv2 is None:
+        return
+
+    log_test("Blocked: status is 'blocked'", rmv2.get("status") == "blocked",
+             f"value='{rmv2.get('status')}'")
+    log_test("Blocked: claim_level is 'none'", rmv2.get("claim_level") == "none",
+             f"value='{rmv2.get('claim_level')}'")
+    log_test("Blocked: backend_available is False", rmv2.get("backend_available") is False,
+             f"value={rmv2.get('backend_available')}")
+    log_test("Blocked: reason contains 'reference set'",
+             "reference set" in (rmv2.get("reason") or "").lower(),
+             f"reason='{rmv2.get('reason')}'")
+    log_test("Blocked: phase_confirmed is False", rmv2.get("phase_confirmed") is False)
+    log_test("Blocked: phase_purity_confirmed is False", rmv2.get("phase_purity_confirmed") is False)
+
+
+# ── Test 19: Phase 7C — Unavailable: unknown reference_set_id ────────────────
+
+def test_phase7c_unavailable_unknown_reference_set():
+    """Unknown reference_set_id returns unavailable status with backend_available=False."""
+    print("\n═══ Test 19: Phase 7C — Unavailable: unknown reference_set_id ═══")
+    x, y = generate_cofe2o4_xrd_pattern()
+
+    payload = {
+        "x": x, "y": y,
+        "theta_min": 10.0, "theta_max": 80.0,
+        "parameters": {
+            "reference_match": {
+                "enabled": True,
+                "reference_set_id": "nonexistent_reference_set_12345",
+            },
+        },
+    }
+
+    resp = client.post("/process", json=payload)
+    log_test("Unavailable: POST /process returns 200", resp.status_code == 200,
+             f"status={resp.status_code}")
+    if resp.status_code != 200:
+        return
+
+    data = resp.json()
+    rmv2 = data.get("reference_match_v2")
+    log_test("Unavailable: reference_match_v2 present", rmv2 is not None)
+    if rmv2 is None:
+        return
+
+    log_test("Unavailable: status is 'unavailable'", rmv2.get("status") == "unavailable",
+             f"value='{rmv2.get('status')}'")
+    log_test("Unavailable: claim_level is 'none'", rmv2.get("claim_level") == "none",
+             f"value='{rmv2.get('claim_level')}'")
+    log_test("Unavailable: backend_available is False", rmv2.get("backend_available") is False,
+             f"value={rmv2.get('backend_available')}")
+    log_test("Unavailable: reason contains 'not available'",
+             "not available" in (rmv2.get("reason") or "").lower(),
+             f"reason='{rmv2.get('reason')}'")
+    log_test("Unavailable: phase_confirmed is False", rmv2.get("phase_confirmed") is False)
+    log_test("Unavailable: phase_purity_confirmed is False", rmv2.get("phase_purity_confirmed") is False)
+
+
+# ── Test 20: Phase 7C — No match: filtering excludes all candidates ──────────
+
+def test_phase7c_no_match_filtering():
+    """Candidate filtering to nonexistent phase returns no_match."""
+    print("\n═══ Test 20: Phase 7C — No match: candidate filtering ═══")
+    x, y = generate_cofe2o4_xrd_pattern()
+
+    payload = {
+        "x": x, "y": y,
+        "theta_min": 10.0, "theta_max": 80.0,
+        "parameters": {
+            "reference_match": {
+                "enabled": True,
+                "reference_set_id": "spinel_ferrite_sba15_demo_set",
+                "candidate_phase_ids": ["nonexistent_phase_xyz"],
+            },
+        },
+    }
+
+    resp = client.post("/process", json=payload)
+    log_test("No match: POST /process returns 200", resp.status_code == 200,
+             f"status={resp.status_code}")
+    if resp.status_code != 200:
+        return
+
+    data = resp.json()
+    rmv2 = data.get("reference_match_v2")
+    log_test("No match: reference_match_v2 present", rmv2 is not None)
+    if rmv2 is None:
+        return
+
+    log_test("No match: status is 'no_match'", rmv2.get("status") == "no_match",
+             f"value='{rmv2.get('status')}'")
+    log_test("No match: claim_level is 'none'", rmv2.get("claim_level") == "none",
+             f"value='{rmv2.get('claim_level')}'")
+    log_test("No match: backend_available is True", rmv2.get("backend_available") is True,
+             f"value={rmv2.get('backend_available')}")
+    log_test("No match: reason contains 'filtering'",
+             "filtering" in (rmv2.get("reason") or "").lower(),
+             f"reason='{rmv2.get('reason')}'")
+    log_test("No match: phase_confirmed is False", rmv2.get("phase_confirmed") is False)
+    log_test("No match: phase_purity_confirmed is False", rmv2.get("phase_purity_confirmed") is False)
+
+
+# ── Test 21: Phase 7C — Disabled reference_match still returns None ───────────
+
+def test_phase7c_disabled_returns_none():
+    """Disabled reference_match still returns reference_match_v2 = None."""
+    print("\n═══ Test 21: Phase 7C — Disabled reference_match returns None ═══")
+    x, y = generate_cofe2o4_xrd_pattern()
+
+    payload = {
+        "x": x, "y": y,
+        "theta_min": 10.0, "theta_max": 80.0,
+        "parameters": {
+            "reference_match": {
+                "enabled": False,
+            },
+        },
+    }
+
+    resp = client.post("/process", json=payload)
+    log_test("Disabled: POST /process returns 200", resp.status_code == 200,
+             f"status={resp.status_code}")
+    if resp.status_code != 200:
+        return
+
+    data = resp.json()
+    rmv2 = data.get("reference_match_v2")
+    log_test("Disabled: reference_match_v2 is None", rmv2 is None,
+             f"value={rmv2}")
+
+
+# ── Test 22: Phase 7C — phase_confirmed remains False in all unavailable cases ──
+
+def test_phase7c_phase_confirmed_always_false():
+    """Verify phase_confirmed and phase_purity_confirmed remain False."""
+    print("\n═══ Test 22: Phase 7C — phase_confirmed always False ═══")
+    x, y = generate_cofe2o4_xrd_pattern()
+
+    # Test blocked case
+    payload_blocked = {
+        "x": x, "y": y,
+        "parameters": {"reference_match": {"enabled": True, "reference_set_id": None}},
+    }
+    resp = client.post("/process", json=payload_blocked)
+    if resp.status_code == 200:
+        data = resp.json()
+        rmv2 = data.get("reference_match_v2")
+        if rmv2:
+            log_test("Blocked: phase_confirmed is False", rmv2.get("phase_confirmed") is False)
+            log_test("Blocked: phase_purity_confirmed is False", rmv2.get("phase_purity_confirmed") is False)
+
+    # Test unavailable case
+    payload_unavailable = {
+        "x": x, "y": y,
+        "parameters": {
+            "reference_match": {
+                "enabled": True,
+                "reference_set_id": "fake_set",
+            },
+        },
+    }
+    resp = client.post("/process", json=payload_unavailable)
+    if resp.status_code == 200:
+        data = resp.json()
+        rmv2 = data.get("reference_match_v2")
+        if rmv2:
+            log_test("Unavailable: phase_confirmed is False", rmv2.get("phase_confirmed") is False)
+            log_test("Unavailable: phase_purity_confirmed is False", rmv2.get("phase_purity_confirmed") is False)
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -1415,6 +1613,13 @@ if __name__ == "__main__":
     test_phase7a_no_reference_match()
     test_phase7a_backward_compatibility()
     test_phase7a_flat_signal()
+
+    # Phase 7C tests
+    test_phase7c_blocked_no_reference_set_id()
+    test_phase7c_unavailable_unknown_reference_set()
+    test_phase7c_no_match_filtering()
+    test_phase7c_disabled_returns_none()
+    test_phase7c_phase_confirmed_always_false()
 
     # Summary
     print("\n" + "═" * 56)

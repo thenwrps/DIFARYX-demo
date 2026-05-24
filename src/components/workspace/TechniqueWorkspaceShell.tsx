@@ -2603,6 +2603,13 @@ function XRDReferenceCandidateEvidence({ referenceMatch }: { referenceMatch: XRD
           <Metric label="Mean delta 2theta" value={formatReferenceMatchNumber(primaryCandidate?.mean_delta_two_theta, 3)} />
         </div>
 
+        {referenceMatch.reason && (referenceMatch.status === 'blocked' || referenceMatch.status === 'unavailable' || referenceMatch.status === 'no_match') && (
+          <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
+            <p className="text-[9px] font-bold uppercase tracking-wide text-amber-900">Status note</p>
+            <p className="mt-1 text-[10px] leading-relaxed text-amber-900">{referenceMatch.reason}</p>
+          </div>
+        )}
+
         {visibleMatchedPeaks.length > 0 && (
           <div className="space-y-1">
             <p className="text-[9px] font-bold uppercase tracking-wide text-text-muted">Matched peak candidates</p>
