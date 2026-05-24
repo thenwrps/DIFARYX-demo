@@ -197,6 +197,23 @@ interface XRDBackendSignalSource {
   uploadedRunId?: string;
 }
 
+type XRDReadinessAnalysisMode =
+  | 'signal_processing_only'
+  | 'candidate_screening'
+  | 'targeted_candidate_match'
+  | 'not_ready';
+
+interface XRDReadinessState {
+  hasSignal: boolean;
+  hasKnownElements: boolean;
+  hasDeclaredPhases: boolean;
+  hasReferenceSet: boolean;
+  referenceMatchEnabled: boolean;
+  analysisMode: XRDReadinessAnalysisMode;
+  message: string;
+  tone: 'neutral' | 'info' | 'warning';
+}
+
 function statusBadgeClass(status: string) {
   const normalized = status.toLowerCase();
   if (normalized.includes('available') || normalized.includes('supported') || normalized.includes('ready')) {
@@ -680,6 +697,90 @@ function buildXrdBackendSignalSource(
   };
 }
 
+function hasFiniteXrdSignalPoints(points: Array<{ x: number; y: number }> | undefined | null) {
+  return Boolean(points?.some((point) => Number.isFinite(point.x) && Number.isFinite(point.y)));
+}
+
+function getXrdReadinessState({
+  hasSignal,
+  datasetContext,
+  parameters,
+}: {
+  hasSignal: boolean;
+  datasetContext: XRDDatasetContext;
+  parameters: XRDParameters;
+}): XRDReadinessState {
+  const hasKnownElements = datasetContext.knownElements.length > 0;
+  const hasDeclaredPhases = datasetContext.declaredPhases.length > 0;
+  const hasReferenceSet = Boolean(parameters.referenceMatch.referenceSetId || datasetContext.referenceSetId);
+  const referenceMatchEnabled = parameters.referenceMatch.enabled;
+
+  if (!hasSignal) {
+    return {
+      hasSignal,
+      hasKnownElements,
+      hasDeclaredPhases,
+      hasReferenceSet,
+      referenceMatchEnabled,
+      analysisMode: 'not_ready',
+      message: 'Attach or load an XRD signal to enable processing.',
+      tone: 'warning',
+    };
+  }
+
+  if (!hasReferenceSet) {
+    return {
+      hasSignal,
+      hasKnownElements,
+      hasDeclaredPhases,
+      hasReferenceSet,
+      referenceMatchEnabled,
+      analysisMode: 'signal_processing_only',
+      message: 'XRD signal processing is available. Reference matching requires a selected reference set and sample context.',
+      tone: 'neutral',
+    };
+  }
+
+  if (!hasKnownElements) {
+    return {
+      hasSignal,
+      hasKnownElements,
+      hasDeclaredPhases,
+      hasReferenceSet,
+      referenceMatchEnabled,
+      analysisMode: 'candidate_screening',
+      message: 'Reference candidate screening is available. Add known elements to improve candidate filtering.',
+      tone: 'info',
+    };
+  }
+
+  return {
+    hasSignal,
+    hasKnownElements,
+    hasDeclaredPhases,
+    hasReferenceSet,
+    referenceMatchEnabled,
+    analysisMode: 'targeted_candidate_match',
+    message: 'Targeted candidate matching is available under user-declared sample context.',
+    tone: 'info',
+  };
+}
+
+function formatXrdReadinessAnalysisMode(mode: XRDReadinessAnalysisMode) {
+  switch (mode) {
+    case 'signal_processing_only':
+      return 'Signal processing only';
+    case 'candidate_screening':
+      return 'Candidate screening';
+    case 'targeted_candidate_match':
+      return 'Targeted candidate match';
+    case 'not_ready':
+      return 'Not ready';
+    default:
+      return mode;
+  }
+}
+
 export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName, sessionId }: TechniqueWorkspaceShellProps) {
   const isQuickMode = mode === 'quick';
   const config = useMemo(() => getTechniqueWorkspaceConfig(technique), [technique]);
@@ -790,6 +891,18 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
   );
   const uploadedGraphData = useMemo(() => buildSnapshotGraphData(snapshotDataset), [snapshotDataset]);
   const graphData = quickGraphData ?? uploadedGraphData ?? focusedEvidence?.graphData;
+  const xrdHasFiniteSignal = useMemo(() => {
+    if (technique !== 'xrd') return false;
+
+    const uploadedRunId = routeContext.uploadedRunId ?? quickAnalysisSession?.uploadedRunId ?? null;
+    const uploadedRun = uploadedRunId ? getUploadedRunById(uploadedRunId) : null;
+
+    if (uploadedRun?.technique === 'XRD' && hasFiniteXrdSignalPoints(uploadedRun.points)) {
+      return true;
+    }
+
+    return graphData?.type === 'XRD' && hasFiniteXrdSignalPoints(graphData.data);
+  }, [graphData, quickAnalysisSession?.uploadedRunId, routeContext.uploadedRunId, technique]);
   const hasProjectEvidence = Boolean(
     isUploadedContext ||
     evidenceSnapshot?.availableTechniques.includes(technique.toUpperCase() as Technique) ||
@@ -2170,6 +2283,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
                 sharedOverrideCount={sharedOverrideCount}
                 xrdParameters={xrdParameters}
                 xrdDatasetContext={xrdDatasetContext}
+                xrdHasFiniteSignal={xrdHasFiniteSignal}
                 onXrdParametersChange={setXrdParameters}
                 onXrdDatasetContextChange={setXrdDatasetContext}
               />
@@ -2551,6 +2665,7 @@ function ParametersPanel({
   sharedOverrideCount,
   xrdParameters,
   xrdDatasetContext,
+  xrdHasFiniteSignal,
   onXrdParametersChange,
   onXrdDatasetContextChange,
 }: {
@@ -2567,6 +2682,7 @@ function ParametersPanel({
   sharedOverrideCount: number;
   xrdParameters: XRDParameters;
   xrdDatasetContext: XRDDatasetContext;
+  xrdHasFiniteSignal: boolean;
   onXrdParametersChange: React.Dispatch<React.SetStateAction<XRDParameters>>;
   onXrdDatasetContextChange: React.Dispatch<React.SetStateAction<XRDDatasetContext>>;
 }) {
@@ -2584,6 +2700,7 @@ function ParametersPanel({
         sharedOverrideCount={sharedOverrideCount}
         parameters={xrdParameters}
         datasetContext={xrdDatasetContext}
+        hasFiniteSignal={xrdHasFiniteSignal}
         onParametersChange={onXrdParametersChange}
         onDatasetContextChange={onXrdDatasetContextChange}
       />
@@ -2720,6 +2837,7 @@ function XRDParametersPanel({
   sharedOverrideCount,
   parameters,
   datasetContext,
+  hasFiniteSignal,
   onParametersChange,
   onDatasetContextChange,
 }: {
@@ -2734,9 +2852,16 @@ function XRDParametersPanel({
   sharedOverrideCount: number;
   parameters: XRDParameters;
   datasetContext: XRDDatasetContext;
+  hasFiniteSignal: boolean;
   onParametersChange: React.Dispatch<React.SetStateAction<XRDParameters>>;
   onDatasetContextChange: React.Dispatch<React.SetStateAction<XRDDatasetContext>>;
 }) {
+  const readiness = getXrdReadinessState({
+    hasSignal: hasFiniteSignal,
+    datasetContext,
+    parameters,
+  });
+
   function updateParameterStage<TStage extends keyof XRDParameters>(
     stage: TStage,
     updates: Partial<XRDParameters[TStage]>,
@@ -2842,6 +2967,26 @@ function XRDParametersPanel({
             onChange={updateReferenceSetId}
             placeholder="Reference set id"
           />
+        </div>
+      </Panel>
+
+      <Panel title="XRD Readiness" icon={<CheckCircle2 size={13} />}>
+        <XRDStatusText tone={readiness.tone}>{readiness.message}</XRDStatusText>
+        <div className="mt-2 grid grid-cols-2 gap-1">
+          <Metric label="Analysis mode" value={formatXrdReadinessAnalysisMode(readiness.analysisMode)} />
+          <Metric label="Signal" value={readiness.hasSignal ? 'Available' : 'Not ready'} />
+          <Metric label="Reference set" value={readiness.hasReferenceSet ? 'Selected' : 'Required'} />
+          <Metric label="Known elements" value={readiness.hasKnownElements ? 'Provided' : 'Not provided'} />
+          <Metric label="Declared phases" value={readiness.hasDeclaredPhases ? 'Provided' : 'Optional'} />
+          <Metric label="Reference match" value={readiness.referenceMatchEnabled ? 'Enabled' : 'Disabled'} />
+        </div>
+        <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
+          <p className="text-[9px] font-bold uppercase tracking-wide text-amber-900">Boundary</p>
+          <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-amber-900">
+            <li>No chemical identity confirmation.</li>
+            <li>No phase purity confirmation.</li>
+            <li>Candidate evidence only when reference matching is used.</li>
+          </ul>
         </div>
       </Panel>
 
