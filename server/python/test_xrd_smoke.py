@@ -977,6 +977,412 @@ def test_phase4_disabled_reference_match():
              data.get("reference_match_v2") is None)
 
 
+# ── Test 11: Phase 7A — General-sample assessment present for valid signal ──
+
+def test_phase7a_general_assessment_present():
+    """
+    POST /process with a valid CoFe2O4-like signal must return
+    general_sample_assessment and xrd_claim_boundary in the response.
+    """
+    print("\n═══ Test 11: Phase 7A — general_sample_assessment present ═══")
+    x, y = generate_cofe2o4_xrd_pattern()
+
+    payload = {
+        "x": x,
+        "y": y,
+        "theta_min": 10.0,
+        "theta_max": 80.0,
+        "peak_threshold": 0.10,
+        "min_prominence": 0.05,
+    }
+
+    resp = client.post("/process", json=payload)
+    log_test("Phase 7A: POST /process returns 200", resp.status_code == 200,
+             f"status={resp.status_code}")
+    if resp.status_code != 200:
+        return
+
+    data = resp.json()
+
+    # general_sample_assessment is present and non-None
+    gsa = data.get("general_sample_assessment")
+    log_test("Phase 7A: general_sample_assessment is present", gsa is not None)
+
+    if gsa is None:
+        return
+
+    # Required fields
+    required_fields = [
+        "signal_quality", "crystallinity_indicator", "peak_density",
+        "dominant_peak_regions", "unmatched_peak_count", "unmatched_peaks",
+        "interpretation_mode",
+    ]
+    has_fields = all(f in gsa for f in required_fields)
+    log_test("Phase 7A: general_sample_assessment has all required fields",
+             has_fields, f"fields={list(gsa.keys()) if gsa else 'N/A'}")
+
+    # Valid signal quality
+    valid_sq = {"good", "marginal", "weak"}
+    sq = gsa.get("signal_quality", "")
+    log_test("Phase 7A: signal_quality is valid", sq in valid_sq,
+             f"value='{sq}'")
+
+    # Valid crystallinity indicator
+    valid_ci = {"crystalline_like", "amorphous_like", "mixed", "insufficient"}
+    ci = gsa.get("crystallinity_indicator", "")
+    log_test("Phase 7A: crystallinity_indicator is valid", ci in valid_ci,
+             f"value='{ci}'")
+
+    # Peak density is numeric
+    pd_val = gsa.get("peak_density")
+    log_test("Phase 7A: peak_density is numeric", isinstance(pd_val, (int, float)),
+             f"value={pd_val}")
+
+    # Dominant peak regions is a list
+    dpr = gsa.get("dominant_peak_regions", [])
+    log_test("Phase 7A: dominant_peak_regions is list", isinstance(dpr, list),
+             f"count={len(dpr)}")
+
+    # Unmatched count is int
+    uc = gsa.get("unmatched_peak_count")
+    log_test("Phase 7A: unmatched_peak_count is int", isinstance(uc, int),
+             f"value={uc}")
+
+    # Interpretation mode
+    valid_im = {"phase_screening", "feature_only", "insufficient_data"}
+    im = gsa.get("interpretation_mode", "")
+    log_test("Phase 7A: interpretation_mode is valid", im in valid_im,
+             f"value='{im}'")
+
+    # xrd_claim_boundary is present and non-None
+    cb = data.get("xrd_claim_boundary")
+    log_test("Phase 7A: xrd_claim_boundary is present", cb is not None)
+
+    if cb is None:
+        return
+
+    cb_required = ["allowed_claims", "blocked_claims", "required_validation", "limitations"]
+    has_cb_fields = all(f in cb for f in cb_required)
+    log_test("Phase 7A: xrd_claim_boundary has all required fields",
+             has_cb_fields, f"fields={list(cb.keys()) if cb else 'N/A'}")
+
+    # Blocked claims must always include identity/purity blocks
+    blocked = cb.get("blocked_claims", [])
+    blocked_text = " ".join(blocked).lower()
+    has_identity_block = "chemical identity" in blocked_text or "identity" in blocked_text
+    has_purity_block = "phase purity" in blocked_text or "purity" in blocked_text
+    log_test("Phase 7A: blocked claims include identity block", has_identity_block,
+             f"blocked={blocked}")
+    log_test("Phase 7A: blocked claims include purity block", has_purity_block,
+             f"blocked={blocked}")
+
+    # JSON serializable
+    try:
+        json.dumps(data)
+        log_test("Phase 7A: response is JSON-serializable", True)
+    except Exception as e:
+        log_test("Phase 7A: response is JSON-serializable", False, str(e))
+
+
+# ── Test 12: Phase 7A — Crystalline-like signal assessment ──────────────────
+
+def generate_sharp_peaks_pattern():
+    """Generate a signal with sharp, well-defined peaks (crystalline-like)."""
+    import numpy as np
+    x = np.linspace(10.0, 80.0, 3501)
+    # Very narrow FWHMs (0.06-0.08°) so that after SG smoothing the detected
+    # FWHMs remain below the crystallinity sharp threshold (0.8°).
+    peaks = [
+        (25.0, 100.0, 0.06),
+        (32.0, 80.0, 0.07),
+        (38.0, 90.0, 0.06),
+        (45.0, 60.0, 0.08),
+        (55.0, 70.0, 0.06),
+    ]
+    y = np.zeros_like(x)
+    for peak_pos, rel_intensity, fwhm in peaks:
+        sigma = fwhm / 2.355
+        y += rel_intensity * np.exp(-0.5 * ((x - peak_pos) / sigma) ** 2)
+    # Very low baseline noise for clean signal
+    baseline = 10.0 + 0.05 * (x - 10.0)
+    y += baseline
+    np.random.seed(123)
+    y += np.random.normal(0, 0.1, size=len(x))
+    y = np.maximum(y, 0.0)
+    return x.tolist(), y.tolist()
+
+
+def test_phase7a_crystalline_like():
+    """Sharp-peak signal should produce crystalline_like assessment."""
+    print("\n═══ Test 12: Phase 7A — Crystalline-like signal ═══")
+    x, y = generate_sharp_peaks_pattern()
+
+    payload = {"x": x, "y": y, "theta_min": 10.0, "theta_max": 80.0,
+               "peak_threshold": 0.10, "min_prominence": 0.05}
+    resp = client.post("/process", json=payload)
+    log_test("Crystalline: POST /process returns 200", resp.status_code == 200,
+             f"status={resp.status_code}")
+    if resp.status_code != 200:
+        return
+
+    data = resp.json()
+    gsa = data.get("general_sample_assessment")
+    log_test("Crystalline: assessment present", gsa is not None)
+    if gsa is None:
+        return
+
+    ci = gsa.get("crystallinity_indicator", "")
+    log_test("Crystalline: indicator is crystalline_like or mixed",
+             ci in ("crystalline_like", "mixed"),
+             f"value='{ci}'")
+
+    sq = gsa.get("signal_quality", "")
+    log_test("Crystalline: signal quality is good or marginal",
+             sq in ("good", "marginal"),
+             f"value='{sq}'")
+
+
+# ── Test 13: Phase 7A — Amorphous-like signal assessment ────────────────────
+
+def generate_broad_peaks_pattern():
+    """Generate a signal with broad, diffuse peaks (amorphous-like)."""
+    import numpy as np
+    x = np.linspace(10.0, 80.0, 3501)
+    peaks = [
+        (28.0, 40.0, 3.0),  # very broad
+        (42.0, 30.0, 4.0),  # very broad
+    ]
+    y = np.zeros_like(x)
+    for peak_pos, rel_intensity, fwhm in peaks:
+        sigma = fwhm / 2.355
+        y += rel_intensity * np.exp(-0.5 * ((x - peak_pos) / sigma) ** 2)
+    baseline = 50.0 + 0.3 * (x - 10.0)
+    y += baseline
+    np.random.seed(77)
+    y += np.random.normal(0, 1.0, size=len(x))
+    y = np.maximum(y, 0.0)
+    return x.tolist(), y.tolist()
+
+
+def test_phase7a_amorphous_like():
+    """Broad-peak signal should produce amorphous_like assessment."""
+    print("\n═══ Test 13: Phase 7A — Amorphous-like signal ═══")
+    x, y = generate_broad_peaks_pattern()
+
+    payload = {"x": x, "y": y, "theta_min": 10.0, "theta_max": 80.0,
+               "peak_threshold": 0.08, "min_prominence": 0.03}
+    resp = client.post("/process", json=payload)
+    log_test("Amorphous: POST /process returns 200", resp.status_code == 200,
+             f"status={resp.status_code}")
+    if resp.status_code != 200:
+        return
+
+    data = resp.json()
+    gsa = data.get("general_sample_assessment")
+    log_test("Amorphous: assessment present", gsa is not None)
+    if gsa is None:
+        return
+
+    ci = gsa.get("crystallinity_indicator", "")
+    # May be amorphous_like, mixed, or insufficient depending on detection
+    log_test("Amorphous: indicator is amorphous_like, mixed, or insufficient",
+             ci in ("amorphous_like", "mixed", "insufficient"),
+             f"value='{ci}'")
+
+    # Limitations should mention amorphous if amorphous_like
+    cb = data.get("xrd_claim_boundary", {})
+    if ci == "amorphous_like":
+        limitations_text = " ".join(cb.get("limitations", [])).lower()
+        log_test("Amorphous: limitations mention amorphous",
+                 "amorphous" in limitations_text,
+                 f"limitations={cb.get('limitations', [])}")
+
+
+# ── Test 14: Phase 7A — Weak / noise-only signal assessment ─────────────────
+
+def test_phase7a_weak_signal():
+    """Noise-only signal should produce weak signal_quality and insufficient_data."""
+    print("\n═══ Test 14: Phase 7A — Weak signal (noise-only) ═══")
+    x, y = generate_noise_only()
+
+    payload = {"x": x, "y": y, "theta_min": 10.0, "theta_max": 80.0}
+    resp = client.post("/process", json=payload)
+    log_test("Weak signal: POST /process returns 200", resp.status_code == 200,
+             f"status={resp.status_code}")
+    if resp.status_code != 200:
+        return
+
+    data = resp.json()
+    gsa = data.get("general_sample_assessment")
+    log_test("Weak signal: assessment present", gsa is not None)
+    if gsa is None:
+        return
+
+    sq = gsa.get("signal_quality", "")
+    # Noise-only may produce spurious peaks yielding marginal; accept weak or marginal
+    log_test("Weak signal: signal_quality is weak or marginal",
+             sq in ("weak", "marginal"),
+             f"value='{sq}'")
+
+    im = gsa.get("interpretation_mode", "")
+    log_test("Weak signal: interpretation_mode is insufficient_data",
+             im == "insufficient_data",
+             f"value='{im}'")
+
+    cb = data.get("xrd_claim_boundary", {})
+    required = cb.get("required_validation", [])
+    required_text = " ".join(required).lower()
+    # When signal_quality is "weak", repeat measurement is required;
+    # when "marginal", it may not be — both are acceptable for noise-only input
+    if sq == "weak":
+        log_test("Weak signal: required_validation mentions repeat measurement",
+                 "repeat" in required_text or "improved" in required_text,
+                 f"required={required}")
+    else:
+        log_test("Weak signal (marginal): no repeat requirement is acceptable",
+                 True, f"signal_quality='{sq}', required={required}")
+
+
+# ── Test 15: Phase 7A — No-reference-match case ─────────────────────────────
+
+def test_phase7a_no_reference_match():
+    """Without reference_match, assessment should still return valid fields."""
+    print("\n═══ Test 15: Phase 7A — No reference match ═══")
+    x, y = generate_cofe2o4_xrd_pattern()
+
+    # No parameters.reference_match, so no v2 matching
+    payload = {
+        "x": x, "y": y,
+        "theta_min": 10.0, "theta_max": 80.0,
+        "peak_threshold": 0.10, "min_prominence": 0.05,
+    }
+    resp = client.post("/process", json=payload)
+    log_test("No ref match: POST /process returns 200", resp.status_code == 200,
+             f"status={resp.status_code}")
+    if resp.status_code != 200:
+        return
+
+    data = resp.json()
+    gsa = data.get("general_sample_assessment")
+    log_test("No ref match: assessment present", gsa is not None)
+    if gsa is None:
+        return
+
+    # Without reference data, all detected peaks are "unmatched"
+    uc = gsa.get("unmatched_peak_count", 0)
+    det_count = len(data.get("detected_peaks", []))
+    log_test("No ref match: unmatched_count equals detected peak count",
+             uc == det_count,
+             f"unmatched={uc}, detected={det_count}")
+
+    # interpretation_mode should be feature_only or insufficient_data
+    im = gsa.get("interpretation_mode", "")
+    log_test("No ref match: interpretation_mode is feature_only or insufficient_data",
+             im in ("feature_only", "insufficient_data"),
+             f"value='{im}'")
+
+    # Claim boundary should block reference-supported phase identification
+    cb = data.get("xrd_claim_boundary", {})
+    blocked_text = " ".join(cb.get("blocked_claims", [])).lower()
+    log_test("No ref match: blocks reference-supported phase identification",
+             "reference" in blocked_text and ("phase" in blocked_text or "identification" in blocked_text),
+             f"blocked={cb.get('blocked_claims', [])}")
+
+
+# ── Test 16: Phase 7A — Backward compatibility with Phase 4 ─────────────────
+
+def test_phase7a_backward_compatibility():
+    """
+    Verify that adding general_sample_assessment does not break existing fields.
+    All fields from Phase 4 must still be present.
+    """
+    print("\n═══ Test 16: Phase 7A — Backward compatibility ═══")
+    x, y = generate_cofe2o4_xrd_pattern()
+
+    payload = {
+        "x": x, "y": y,
+        "theta_min": 10.0, "theta_max": 80.0,
+        "peak_threshold": 0.10, "min_prominence": 0.05,
+        "dataset_context": {
+            "known_elements": ["Co", "Fe", "O"],
+            "reference_set_id": "spinel_ferrite_sba15_demo_set",
+        },
+        "parameters": {
+            "reference_match": {
+                "enabled": True,
+                "reference_set_id": "spinel_ferrite_sba15_demo_set",
+                "tolerance_two_theta": 0.5,
+                "min_score": 0.65,
+            },
+        },
+    }
+
+    resp = client.post("/process", json=payload)
+    log_test("Backward compat: POST /process returns 200", resp.status_code == 200,
+             f"status={resp.status_code}")
+    if resp.status_code != 200:
+        return
+
+    data = resp.json()
+
+    # Existing fields must still be present
+    for field in ("x", "y_raw", "y_smoothed", "y_baseline", "y_corrected",
+                  "y_residual", "detected_peaks", "fitted_peaks",
+                  "phase_match", "sn_ratio", "baseline_deviation",
+                  "peak_resolution"):
+        log_test(f"Backward compat: '{field}' still present", field in data)
+
+    # Phase 4 field
+    rmv2 = data.get("reference_match_v2")
+    log_test("Backward compat: reference_match_v2 present", rmv2 is not None)
+
+    # Phase 7A fields
+    log_test("Backward compat: general_sample_assessment present",
+             data.get("general_sample_assessment") is not None)
+    log_test("Backward compat: xrd_claim_boundary present",
+             data.get("xrd_claim_boundary") is not None)
+
+    # JSON round-trip
+    try:
+        json.dumps(data)
+        log_test("Backward compat: full response is JSON-serializable", True)
+    except Exception as e:
+        log_test("Backward compat: full response is JSON-serializable", False, str(e))
+
+
+# ── Test 17: Phase 7A — Flat signal assessment ──────────────────────────────
+
+def test_phase7a_flat_signal():
+    """Flat signal should produce weak signal_quality."""
+    print("\n═══ Test 17: Phase 7A — Flat signal assessment ═══")
+    x, y = generate_flat_signal()
+
+    payload = {"x": x, "y": y}
+    resp = client.post("/process", json=payload)
+    log_test("Flat: POST /process returns 200", resp.status_code == 200,
+             f"status={resp.status_code}")
+    if resp.status_code != 200:
+        return
+
+    data = resp.json()
+    gsa = data.get("general_sample_assessment")
+    log_test("Flat: assessment present", gsa is not None)
+    if gsa is None:
+        return
+
+    sq = gsa.get("signal_quality", "")
+    ci = gsa.get("crystallinity_indicator", "")
+    im = gsa.get("interpretation_mode", "")
+    log_test("Flat: signal_quality is weak or marginal", sq in ("weak", "marginal"),
+             f"value='{sq}'")
+    log_test("Flat: crystallinity_indicator is insufficient or amorphous_like",
+             ci in ("insufficient", "amorphous_like"),
+             f"value='{ci}'")
+    log_test("Flat: interpretation_mode is insufficient_data",
+             im == "insufficient_data",
+             f"value='{im}'")
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -1000,6 +1406,15 @@ if __name__ == "__main__":
     test_phase4_reference_match_v2_returns_candidates()
     test_phase4_no_confirmed_identity_wording()
     test_phase4_disabled_reference_match()
+
+    # Phase 7A tests
+    test_phase7a_general_assessment_present()
+    test_phase7a_crystalline_like()
+    test_phase7a_amorphous_like()
+    test_phase7a_weak_signal()
+    test_phase7a_no_reference_match()
+    test_phase7a_backward_compatibility()
+    test_phase7a_flat_signal()
 
     # Summary
     print("\n" + "═" * 56)

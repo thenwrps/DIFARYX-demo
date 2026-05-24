@@ -42,6 +42,8 @@ from api.schemas import (
     PeakMatchResponse,
     PhaseMatchResponse,
     ReferenceMarkerResponse,
+    XRDClaimBoundary,
+    XRDGeneralSampleAssessment,
     XRDProcessRequest,
     XRDProcessResponse,
     ScienceSkill,
@@ -61,6 +63,10 @@ from xrd_engine.services.reference_db_service import (
     match_reference_candidates,
 )
 from xrd_engine.services.xrd_engine import XRDSignalProcessor
+from xrd_engine.services.general_sample_assessment import (
+    assess_general_sample,
+    compute_claim_boundary,
+)
 from api.evidence_router import router as evidence_router
 
 logger = logging.getLogger("difaryx.xrd.gateway")
@@ -176,6 +182,8 @@ def _build_response(
     result,
     phase_match_result=None,
     reference_match_v2_result=None,
+    general_sample_assessment=None,
+    xrd_claim_boundary=None,
 ) -> XRDProcessResponse:
     """
     Convert engine ProcessingResult to an API response model.
@@ -184,6 +192,8 @@ def _build_response(
         result: ProcessingResult from XRDSignalProcessor.run().
         phase_match_result: Optional PhaseMatchResult from reference_db_service.
         reference_match_v2_result: Optional dict from match_reference_candidates.
+        general_sample_assessment: Optional general-sample assessment dict.
+        xrd_claim_boundary: Optional claim boundary dict.
 
     Returns:
         Serialized XRDProcessResponse.
@@ -255,6 +265,8 @@ def _build_response(
         fitted_peaks=fitted,
         phase_match=phase_match_resp,
         reference_match_v2=ref_match_v2_resp,
+        general_sample_assessment=general_sample_assessment,
+        xrd_claim_boundary=xrd_claim_boundary,
         sn_ratio=result.sn_ratio,
         baseline_deviation=result.baseline_deviation,
         peak_resolution=result.peak_resolution,
@@ -374,20 +386,44 @@ async def process_xrd(request: XRDProcessRequest):
 
         t_ref_v2 = time.perf_counter()
 
+        # Phase 7A: general-sample assessment + claim boundary (always computed)
+        assessment_dict = assess_general_sample(
+            detected_peaks=result.detected_peaks,
+            fitted_peaks=result.fitted_peaks,
+            sn_ratio=result.sn_ratio,
+            theta_min=request.theta_min,
+            theta_max=request.theta_max,
+            reference_match_v2=reference_match_v2_result,
+        )
+        claim_boundary_dict = compute_claim_boundary(
+            assessment=assessment_dict,
+            reference_match_v2=reference_match_v2_result,
+        )
+        general_assessment_model = XRDGeneralSampleAssessment(**assessment_dict)
+        claim_boundary_model = XRDClaimBoundary(**claim_boundary_dict)
+        t_assess = time.perf_counter()
+
         n_points = len(request.x)
         n_det = len(result.detected_peaks)
         n_fit = len(result.fitted_peaks)
         logger.info(
             "XRD pipeline: %d points → %d detected, %d fitted | "
-            "process=%.3fs, match=%.3fs, ref_v2=%.3fs, total=%.3fs",
+            "process=%.3fs, match=%.3fs, ref_v2=%.3fs, assess=%.3fs, total=%.3fs",
             n_points, n_det, n_fit,
             t_process - t0,
             t_match - t_process,
             t_ref_v2 - t_match,
-            t_ref_v2 - t0,
+            t_assess - t_ref_v2,
+            t_assess - t0,
         )
 
-        return _build_response(result, phase_match_result, reference_match_v2_result)
+        return _build_response(
+            result,
+            phase_match_result,
+            reference_match_v2_result,
+            general_assessment_model,
+            claim_boundary_model,
+        )
 
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

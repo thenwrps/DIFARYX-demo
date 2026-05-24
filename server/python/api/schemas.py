@@ -169,6 +169,88 @@ class MatchRequest(BaseModel):
 # ============================================================================
 
 
+class XRDDominantPeakRegion(BaseModel):
+    """A region in 2θ space where peaks cluster."""
+    range_label: str = Field(
+        ..., description="2θ range label, e.g. '20–22°'"
+    )
+    peak_count: int = Field(..., description="Number of peaks in this region")
+    character: str = Field(
+        ..., description="Peak character: sharp | broad | mixed"
+    )
+    representative_2theta: Optional[float] = Field(
+        None, description="Representative 2θ position (strongest peak)"
+    )
+
+
+class XRDUnmatchedPeak(BaseModel):
+    """A measured peak not explained by top reference candidates."""
+    position_2theta: float = Field(
+        ..., description="2θ position of the unmatched peak"
+    )
+    intensity: float = Field(..., description="Peak intensity")
+    nearest_match_2theta: Optional[float] = Field(
+        None, description="Nearest reference-line position"
+    )
+    delta_2theta: Optional[float] = Field(
+        None, description="Distance to nearest reference line (°2θ)"
+    )
+
+
+class XRDGeneralSampleAssessment(BaseModel):
+    """General-purpose XRD signal quality and sample characterization."""
+    signal_quality: str = Field(
+        ..., description="Signal quality: good | marginal | weak"
+    )
+    crystallinity_indicator: str = Field(
+        ...,
+        description=(
+            "Crystallinity characterization: "
+            "crystalline_like | amorphous_like | mixed | insufficient"
+        ),
+    )
+    peak_density: float = Field(
+        ..., description="Peaks per degree 2θ in measured range"
+    )
+    dominant_peak_regions: List[XRDDominantPeakRegion] = Field(
+        default_factory=list,
+        description="Regions where peaks cluster",
+    )
+    unmatched_peak_count: int = Field(
+        ..., description="Number of measured peaks not explained by top candidates"
+    )
+    unmatched_peaks: List[XRDUnmatchedPeak] = Field(
+        default_factory=list,
+        description="Preview of unmatched peak positions",
+    )
+    interpretation_mode: str = Field(
+        ...,
+        description=(
+            "Interpretation capability: "
+            "phase_screening | feature_only | insufficient_data"
+        ),
+    )
+
+
+class XRDClaimBoundary(BaseModel):
+    """Backend-safe claim boundary output for XRD evidence."""
+    allowed_claims: List[str] = Field(
+        default_factory=list, description="Claims supported by the evidence"
+    )
+    blocked_claims: List[str] = Field(
+        default_factory=list,
+        description="Claims that must NOT be asserted from XRD alone",
+    )
+    required_validation: List[str] = Field(
+        default_factory=list,
+        description="Complementary techniques needed for stronger claims",
+    )
+    limitations: List[str] = Field(
+        default_factory=list,
+        description="Technical limitations identified for this sample",
+    )
+
+
 class DetectedPeakResponse(BaseModel):
     """Detected peak data in API response."""
     position: float = Field(description="2θ position in degrees.")
@@ -247,6 +329,14 @@ class XRDProcessResponse(BaseModel):
     baseline_deviation: float = Field(
         default=0.0,
         description="Baseline contribution as percentage of total raw intensity.",
+    )
+    general_sample_assessment: Optional[XRDGeneralSampleAssessment] = Field(
+        default=None,
+        description="General-purpose XRD signal quality and sample characterization",
+    )
+    xrd_claim_boundary: Optional[XRDClaimBoundary] = Field(
+        default=None,
+        description="Backend-safe claim boundaries for XRD evidence",
     )
     peak_resolution: str = Field(
         default="screening-grade",
