@@ -103,7 +103,9 @@ import {
   PLANNED_XRD_LOCAL_REFERENCES,
   createEmptyXrdLocalReferenceParseResult,
   getXrdLocalReferenceValidationStatusLabel,
+  type XRDLocalReferenceParseResult,
 } from '../../types/xrdLocalReference';
+import { parseXrdLocalReferenceText } from '../../utils/xrdLocalReferenceParser';
 import { saveXrdBackendEvidenceResult } from '../../data/xrdBackendEvidence';
 import { runRamanProcessing } from '../../agents/ramanAgent/runner';
 import { getRamanProcessingParams, getRamanParameterSnapshot } from '../../utils/ramanParameterAdapter';
@@ -133,6 +135,7 @@ function debugXrdReprocessTrace(message: string, details?: Record<string, unknow
 }
 
 const XRD_LOCAL_REFERENCE_ACCEPTED_FORMATS = ['.csv', '.txt', '.xy', '.dat'];
+const XRD_LOCAL_REFERENCE_MAX_FILE_BYTES = 1024 * 1024;
 
 const XRD_LOCAL_REFERENCE_EXPECTED_COLUMNS = [
   { column: 'two_theta', requirement: 'Required', detail: 'Reference peak position in degrees 2theta.' },
@@ -2889,7 +2892,9 @@ function XRDParametersPanel({
     datasetContext,
     parameters,
   });
-  const localReferenceParsePreview = createEmptyXrdLocalReferenceParseResult();
+  const [localReferenceParsePreview, setLocalReferenceParsePreview] = useState<XRDLocalReferenceParseResult>(
+    () => createEmptyXrdLocalReferenceParseResult(),
+  );
 
   function updateParameterStage<TStage extends keyof XRDParameters>(
     stage: TStage,
@@ -2944,6 +2949,52 @@ function XRDParametersPanel({
     const candidatePhaseIds = parseXrdListInput(value);
     updateParameterStage('referenceMatch', { candidatePhaseIds });
     updateDatasetField('candidatePhaseIds', candidatePhaseIds);
+  }
+
+  function buildLocalReferenceParseError(sourceFileName: string, errors: string[]): XRDLocalReferenceParseResult {
+    return {
+      ...createEmptyXrdLocalReferenceParseResult(),
+      sourceFileName,
+      parsedAt: new Date().toISOString(),
+      status: 'parse_error',
+      validation: {
+        hasTwoTheta: false,
+        hasAtLeastThreePeaks: false,
+        hasRelativeIntensity: false,
+        hasRequiredMetadata: false,
+        warnings: [
+          'Reference metadata was not supplied.',
+          'Local references are not used for backend matching yet.',
+        ],
+        errors,
+      },
+    };
+  }
+
+  async function handleLocalReferenceFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    if (!file) {
+      setLocalReferenceParsePreview(createEmptyXrdLocalReferenceParseResult());
+      return;
+    }
+
+    if (file.size > XRD_LOCAL_REFERENCE_MAX_FILE_BYTES) {
+      setLocalReferenceParsePreview(buildLocalReferenceParseError(
+        file.name,
+        ['File exceeds the 1 MB frontend preview parser limit.'],
+      ));
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      setLocalReferenceParsePreview(parseXrdLocalReferenceText(text, file.name));
+    } catch {
+      setLocalReferenceParsePreview(buildLocalReferenceParseError(
+        file.name,
+        ['Unable to read this file as text.'],
+      ));
+    }
   }
 
   return (
@@ -3281,7 +3332,7 @@ function XRDParametersPanel({
       <Panel title="Project / Uploaded Local References" icon={<Layers size={13} />}>
         <div className="space-y-1.5">
           <XRDStatusText tone="info">
-            Uploaded local references are design-only in this phase.
+            Uploaded local references are preview-only in this phase.
           </XRDStatusText>
           <XRDStatusText tone="warning">
             Uploaded local references are not used for backend matching in this phase.
@@ -3300,27 +3351,82 @@ function XRDParametersPanel({
               </p>
             </div>
             <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-800">
-              Planned
+              Preview only
             </span>
           </div>
-          <label className="mt-2 block rounded border border-blue-100 bg-white/70 px-2 py-1.5 opacity-80">
+          <label className="mt-2 block rounded border border-blue-100 bg-white/70 px-2 py-1.5">
             <XRDFieldLabel label="Local reference file" />
             <input
               type="file"
               accept={XRD_LOCAL_REFERENCE_ACCEPTED_FORMATS.join(',')}
-              disabled
-              className="mt-1 block w-full text-[10px] text-text-muted file:mr-2 file:rounded file:border-0 file:bg-slate-100 file:px-2 file:py-1 file:text-[10px] file:font-bold file:text-text-muted disabled:cursor-not-allowed"
+              onChange={handleLocalReferenceFileChange}
+              className="mt-1 block w-full text-[10px] text-text-muted file:mr-2 file:rounded file:border-0 file:bg-blue-100 file:px-2 file:py-1 file:text-[10px] file:font-bold file:text-blue-800"
             />
           </label>
           <div className="mt-2 grid grid-cols-2 gap-1">
-            <Metric label="Status" value="Planned / not active for backend matching" />
+            <Metric label="Status" value="Local preview only / not active for backend matching" />
             <Metric
               label="Parse status"
               value={getXrdLocalReferenceValidationStatusLabel(localReferenceParsePreview.status)}
             />
+            <Metric label="Source file" value={localReferenceParsePreview.sourceFileName || 'No file selected'} />
+            <Metric label="Parsed peaks" value={localReferenceParsePreview.peaks.length} />
             <Metric label="Backend available" value="No" />
             <Metric label="Used for matching" value="No" />
           </div>
+          {(localReferenceParsePreview.validation.errors.length > 0 || localReferenceParsePreview.validation.warnings.length > 0) && (
+            <div className="mt-2 grid grid-cols-1 gap-1">
+              {localReferenceParsePreview.validation.errors.length > 0 && (
+                <div className="rounded border border-red-200 bg-red-50 px-2 py-1.5">
+                  <p className="text-[9px] font-bold uppercase tracking-wide text-red-800">Errors</p>
+                  <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-red-800">
+                    {localReferenceParsePreview.validation.errors.map((error) => (
+                      <li key={error}>- {error}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {localReferenceParsePreview.validation.warnings.length > 0 && (
+                <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
+                  <p className="text-[9px] font-bold uppercase tracking-wide text-amber-900">Warnings</p>
+                  <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-amber-900">
+                    {localReferenceParsePreview.validation.warnings.map((warning) => (
+                      <li key={warning}>- {warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+          {localReferenceParsePreview.peaks.length > 0 && (
+            <div className="mt-2 overflow-hidden rounded border border-blue-100 bg-white/80">
+              <table className="w-full text-left text-[9px]">
+                <thead className="bg-blue-50 text-blue-950">
+                  <tr>
+                    <th className="px-2 py-1 font-bold">2theta</th>
+                    <th className="px-2 py-1 font-bold">Rel. intensity</th>
+                    <th className="px-2 py-1 font-bold">hkl</th>
+                    <th className="px-2 py-1 font-bold">d-spacing</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {localReferenceParsePreview.peaks.slice(0, 5).map((peak, index) => (
+                    <tr key={`${peak.twoTheta}-${index}`} className="border-t border-blue-50 text-text-main">
+                      <td className="px-2 py-1 font-semibold">{formatReferenceMatchNumber(peak.twoTheta, 3)}</td>
+                      <td className="px-2 py-1">{formatReferenceMatchNumber(peak.relativeIntensity, 1)}</td>
+                      <td className="px-2 py-1">{peak.hkl ?? 'Not available'}</td>
+                      <td className="px-2 py-1">{formatReferenceMatchNumber(peak.dSpacing, 4)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {localReferenceParsePreview.peaks.length > 5 && (
+                <p className="border-t border-blue-50 px-2 py-1 text-[9px] text-text-muted">
+                  Showing first 5 of {localReferenceParsePreview.peaks.length} parsed peaks.
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="mt-2 rounded border border-border bg-background px-2 py-2">
@@ -3380,7 +3486,7 @@ function XRDParametersPanel({
               {localRef.notes.length > 0 && (
                 <ul className="mt-1 space-y-0.5 text-[9px] leading-relaxed text-text-muted">
                   {localRef.notes.map((note, idx) => (
-                    <li key={idx}>• {note}</li>
+                    <li key={idx}>- {note}</li>
                   ))}
                 </ul>
               )}
