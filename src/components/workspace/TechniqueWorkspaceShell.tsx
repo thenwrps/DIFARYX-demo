@@ -106,13 +106,17 @@ import {
   getXrdLocalReferenceValidationStatusLabel,
   type XRDLocalReferenceParseResult,
 } from '../../types/xrdLocalReference';
-import { parseXrdLocalReferenceText } from '../../utils/xrdLocalReferenceParser';
+import {
+  createXrdLocalReferenceImportErrorResult,
+  parseXrdLocalReferenceText,
+} from '../../utils/xrdLocalReferenceParser';
 import {
   buildXrdLocalReferenceDraftFromParseResult,
   buildXrdLocalReferencePayloadFromDraft,
   deleteXrdLocalReferenceDraft,
   getXrdLocalReferenceValidationLevel,
   getXrdLocalReferenceValidationLevelLabel,
+  isXrdLocalReferenceDraftEligibleForBackend,
   listXrdLocalReferenceDrafts,
   saveXrdLocalReferenceDraft,
   type XRDStoredLocalReferenceRecord,
@@ -145,7 +149,16 @@ function debugXrdReprocessTrace(message: string, details?: Record<string, unknow
   }
 }
 
-const XRD_LOCAL_REFERENCE_ACCEPTED_FORMATS = ['.csv', '.txt', '.xy', '.dat'];
+const XRD_LOCAL_REFERENCE_PREVIEW_SUPPORTED_FORMATS = ['.csv', '.txt', '.xy', '.dat'];
+const XRD_LOCAL_REFERENCE_PLANNED_CONVERTER_FORMATS = ['.raw', '.ras', '.xrdml', '.brml', '.uxd', '.cif'];
+const XRD_LOCAL_REFERENCE_SELECTABLE_FORMATS = [
+  ...XRD_LOCAL_REFERENCE_PREVIEW_SUPPORTED_FORMATS,
+  ...XRD_LOCAL_REFERENCE_PLANNED_CONVERTER_FORMATS,
+  '.card',
+  '.jcpds',
+  '.pdf',
+  '.xml',
+];
 const XRD_LOCAL_REFERENCE_MAX_FILE_BYTES = 1024 * 1024;
 
 const XRD_LOCAL_REFERENCE_EXPECTED_COLUMNS = [
@@ -157,9 +170,10 @@ const XRD_LOCAL_REFERENCE_EXPECTED_COLUMNS = [
 
 const XRD_LOCAL_REFERENCE_STATUS_PREVIEW = [
   { label: 'Not uploaded', detail: 'No local reference file is attached.' },
-  { label: 'Uploaded/unvalidated planned', detail: 'Future local parser will inspect columns and metadata.' },
-  { label: 'Parsed preview planned', detail: 'Future preview may show peak rows without enabling backend matching.' },
-  { label: 'Backend matching not supported yet', detail: 'Only active curated reference sets are sent for matching.' },
+  { label: 'Parsed preview', detail: 'A supported text peak list was parsed for frontend review.' },
+  { label: 'Partial preview', detail: 'Readable peak rows were kept and malformed rows were reported.' },
+  { label: 'Requires converter', detail: 'Instrument-native, CIF, or reference-card files need a converter before preview or matching.' },
+  { label: 'Unsupported or corrupted', detail: 'Damaged, binary, or unsupported files remain blocked from backend matching.' },
 ];
 
 const GRAPH_TOOLS: Array<{ id: GraphToolId; label: string; Icon: React.ElementType }> = [
@@ -1236,6 +1250,14 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
       signalSource.uploadedRunId ?? routeContext.uploadedRunId ?? quickAnalysisSession?.uploadedRunId ?? undefined,
     )[0];
     if (!latestDraft) return undefined;
+    if (!isXrdLocalReferenceDraftEligibleForBackend(latestDraft)) {
+      debugXrdReprocessTrace('local reference draft blocked from backend payload', {
+        sourceFileName: latestDraft.sourceFileName,
+        validationStatus: latestDraft.validationStatus,
+        isEligibleForBackendMatching: latestDraft.parseResult.isEligibleForBackendMatching,
+      });
+      return undefined;
+    }
 
     return buildXrdLocalReferencePayloadFromDraft(latestDraft);
   };
@@ -2921,6 +2943,35 @@ function formatXrdLocalReferenceTimestamp(value: string | undefined) {
   });
 }
 
+function formatXrdReferenceFileKind(value: string | undefined) {
+  if (!value) return 'Unknown';
+  return value
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function formatXrdReferenceTextBinaryLikelihood(value: string | undefined) {
+  switch (value) {
+    case 'likely_text':
+      return 'Likely text';
+    case 'likely_binary':
+      return 'Likely binary';
+    case 'mixed':
+      return 'Mixed text/binary';
+    case 'unknown':
+    default:
+      return 'Unknown';
+  }
+}
+
+function formatXrdReferenceFileSize(bytes: number | undefined) {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes)) return 'Not available';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
 function getXrdLocalReferenceDraftsForContext(projectId?: string, uploadedRunId?: string) {
   const drafts = listXrdLocalReferenceDrafts(projectId);
   if (uploadedRunId) {
@@ -2984,10 +3035,15 @@ function XRDParametersPanel({
   ));
   const [localReferenceSaveStatus, setLocalReferenceSaveStatus] = useState<string | null>(null);
   const localReferenceValidationLevel = getXrdLocalReferenceValidationLevel(localReferenceParsePreview);
-  const canSaveLocalReferencePreview = localReferenceParsePreview.status === 'parsed_preview'
+  const canSaveLocalReferencePreview = (
+    localReferenceParsePreview.status === 'parsed_preview'
+    || localReferenceParsePreview.status === 'partial_preview'
+    || localReferenceParsePreview.status === 'repaired_preview'
+  )
     && localReferenceParsePreview.peaks.length > 0
     && localReferenceValidationLevel !== 'invalid_preview';
   const latestLocalReferenceDraft = localReferenceDrafts[0] ?? null;
+  const latestLocalReferenceDraftEligible = isXrdLocalReferenceDraftEligibleForBackend(latestLocalReferenceDraft);
 
   useEffect(() => {
     setLocalReferenceDrafts(getXrdLocalReferenceDraftsForContext(projectId, uploadedRunId));
@@ -3049,24 +3105,12 @@ function XRDParametersPanel({
     updateDatasetField('candidatePhaseIds', candidatePhaseIds);
   }
 
-  function buildLocalReferenceParseError(sourceFileName: string, errors: string[]): XRDLocalReferenceParseResult {
-    return {
-      ...createEmptyXrdLocalReferenceParseResult(),
-      sourceFileName,
-      parsedAt: new Date().toISOString(),
-      status: 'parse_error',
-      validation: {
-        hasTwoTheta: false,
-        hasAtLeastThreePeaks: false,
-        hasRelativeIntensity: false,
-        hasRequiredMetadata: false,
-        warnings: [
-          'Reference metadata was not supplied.',
-          'Local references are not used for backend matching yet.',
-        ],
-        errors,
-      },
-    };
+  function buildLocalReferenceParseError(
+    sourceFileName: string,
+    errors: string[],
+    fileSizeBytes?: number,
+  ): XRDLocalReferenceParseResult {
+    return createXrdLocalReferenceImportErrorResult(sourceFileName, errors, { fileSizeBytes });
   }
 
   function refreshLocalReferenceDrafts() {
@@ -3123,17 +3167,19 @@ function XRDParametersPanel({
       setLocalReferenceParsePreview(buildLocalReferenceParseError(
         file.name,
         ['File exceeds the 1 MB frontend preview parser limit.'],
+        file.size,
       ));
       return;
     }
 
     try {
       const text = await file.text();
-      setLocalReferenceParsePreview(parseXrdLocalReferenceText(text, file.name));
+      setLocalReferenceParsePreview(parseXrdLocalReferenceText(text, file.name, { fileSizeBytes: file.size }));
     } catch {
       setLocalReferenceParsePreview(buildLocalReferenceParseError(
         file.name,
         ['Unable to read this file as text.'],
+        file.size,
       ));
     }
   }
@@ -3473,13 +3519,13 @@ function XRDParametersPanel({
       <Panel title="Project / Uploaded Local References" icon={<Layers size={13} />}>
         <div className="space-y-1.5">
           <XRDStatusText tone="info">
-            Uploaded local references are preview-only in this phase.
+            Uploaded local references are imported through frontend diagnostics before any opt-in backend use.
           </XRDStatusText>
           <XRDStatusText tone="warning">
-            Uploaded local references are not used for backend matching in this phase.
+            Unsupported, corrupted, or converter-required imports are not sent to backend matching.
           </XRDStatusText>
           <XRDStatusText tone="neutral">
-            Current backend matching uses active curated reference sets only.
+            Current backend matching uses active curated reference sets unless an eligible saved local reference is explicitly enabled.
           </XRDStatusText>
         </div>
 
@@ -3488,7 +3534,13 @@ function XRDParametersPanel({
             <div>
               <p className="text-[10px] font-bold text-blue-950">Upload local reference pattern</p>
               <p className="mt-0.5 text-[10px] leading-relaxed text-blue-900">
-                Accepted formats: {XRD_LOCAL_REFERENCE_ACCEPTED_FORMATS.join(', ')}
+                Currently preview-supported: exported text peak lists / text patterns ({XRD_LOCAL_REFERENCE_PREVIEW_SUPPORTED_FORMATS.join(', ')}).
+              </p>
+              <p className="mt-0.5 text-[10px] leading-relaxed text-blue-900">
+                Planned converters: instrument-native files ({XRD_LOCAL_REFERENCE_PLANNED_CONVERTER_FORMATS.join(', ')}), CIF structures, and database/reference-card exports.
+              </p>
+              <p className="mt-0.5 text-[10px] leading-relaxed text-blue-900">
+                Damaged, binary, or incomplete files are checked and reported before use.
               </p>
             </div>
             <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-800">
@@ -3499,13 +3551,13 @@ function XRDParametersPanel({
             <XRDFieldLabel label="Local reference file" />
             <input
               type="file"
-              accept={XRD_LOCAL_REFERENCE_ACCEPTED_FORMATS.join(',')}
+              accept={XRD_LOCAL_REFERENCE_SELECTABLE_FORMATS.join(',')}
               onChange={handleLocalReferenceFileChange}
               className="mt-1 block w-full text-[10px] text-text-muted file:mr-2 file:rounded file:border-0 file:bg-blue-100 file:px-2 file:py-1 file:text-[10px] file:font-bold file:text-blue-800"
             />
           </label>
           <div className="mt-2 grid grid-cols-2 gap-1">
-            <Metric label="Status" value="Local preview only / not active for backend matching" />
+            <Metric label="Status" value="Frontend import diagnostics" />
             <Metric
               label="Parse status"
               value={getXrdLocalReferenceValidationStatusLabel(localReferenceParsePreview.status)}
@@ -3515,9 +3567,20 @@ function XRDParametersPanel({
               value={getXrdLocalReferenceValidationLevelLabel(localReferenceValidationLevel)}
             />
             <Metric label="Source file" value={localReferenceParsePreview.sourceFileName || 'No file selected'} />
+            <Metric label="File kind" value={formatXrdReferenceFileKind(localReferenceParsePreview.fileKind)} />
+            <Metric label="Detected format" value={localReferenceParsePreview.detectedFormat || 'Not detected'} />
+            <Metric label="File size" value={formatXrdReferenceFileSize(localReferenceParsePreview.fileSizeBytes)} />
+            <Metric
+              label="Text/binary"
+              value={formatXrdReferenceTextBinaryLikelihood(localReferenceParsePreview.textBinaryLikelihood)}
+            />
+            <Metric label="Parsed rows" value={localReferenceParsePreview.parsedRowCount} />
+            <Metric label="Ignored rows" value={localReferenceParsePreview.ignoredRowCount} />
             <Metric label="Parsed peaks" value={localReferenceParsePreview.peaks.length} />
-            <Metric label="Backend available" value="No" />
-            <Metric label="Used for matching" value="No" />
+            <Metric
+              label="Backend eligible"
+              value={localReferenceParsePreview.isEligibleForBackendMatching ? 'Yes, after saving and explicit opt-in' : 'No'}
+            />
           </div>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <button
@@ -3603,7 +3666,7 @@ function XRDParametersPanel({
             <div>
               <p className="text-[9px] font-bold uppercase tracking-wide text-text-muted">Saved local reference preview</p>
               <p className="mt-0.5 text-[10px] leading-relaxed text-text-muted">
-                Stored drafts are frontend review records only.
+                Stored drafts remain review records unless an eligible draft is explicitly enabled for a backend run.
               </p>
             </div>
             <span className="shrink-0 rounded-full border border-border bg-surface-alt px-2 py-0.5 text-[9px] font-bold text-text-muted">
@@ -3625,10 +3688,18 @@ function XRDParametersPanel({
               </div>
               <div className="mt-2 grid grid-cols-2 gap-1">
                 <Metric label="Parse status" value={getXrdLocalReferenceValidationStatusLabel(latestLocalReferenceDraft.validationStatus)} />
+                <Metric label="File kind" value={formatXrdReferenceFileKind(latestLocalReferenceDraft.parseResult.fileKind)} />
                 <Metric label="Stored peaks" value={latestLocalReferenceDraft.parseResult.peaks.length} />
-                <Metric label="Backend available" value="No" />
-                <Metric label="Used for matching" value="No" />
+                <Metric label="Parsed rows" value={latestLocalReferenceDraft.parseResult.parsedRowCount} />
+                <Metric label="Ignored rows" value={latestLocalReferenceDraft.parseResult.ignoredRowCount} />
+                <Metric label="Backend eligible" value={latestLocalReferenceDraftEligible ? 'Yes, explicit opt-in required' : 'No'} />
+                <Metric label="Used for matching" value={useLocalReferenceForBackend && latestLocalReferenceDraftEligible ? 'Enabled for next run' : 'No'} />
               </div>
+              {!latestLocalReferenceDraftEligible && (
+                <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] leading-relaxed text-amber-900">
+                  This saved draft is review-only because it is not eligible for backend matching.
+                </p>
+              )}
               <button
                 type="button"
                 onClick={() => handleDeleteLocalReferenceDraft(latestLocalReferenceDraft.id)}
@@ -3646,9 +3717,9 @@ function XRDParametersPanel({
           <div className="mt-2">
             <XRDToggleField
               label="Use saved local reference for this backend run"
-              checked={Boolean(latestLocalReferenceDraft) && useLocalReferenceForBackend}
-              disabled={!latestLocalReferenceDraft}
-              onChange={(enabled) => onUseLocalReferenceForBackendChange(Boolean(latestLocalReferenceDraft) && enabled)}
+              checked={latestLocalReferenceDraftEligible && useLocalReferenceForBackend}
+              disabled={!latestLocalReferenceDraftEligible}
+              onChange={(enabled) => onUseLocalReferenceForBackendChange(latestLocalReferenceDraftEligible && enabled)}
             />
           </div>
           <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] leading-relaxed text-amber-900">
@@ -3696,8 +3767,9 @@ function XRDParametersPanel({
         <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
           <p className="text-[9px] font-bold uppercase tracking-wide text-amber-900">Boundary</p>
           <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-amber-900">
-            <li>Saved local references are not used for backend matching in this phase.</li>
-            <li>Current backend matching uses active curated reference sets only.</li>
+            <li>Saved local references are used for backend matching only when explicitly enabled and eligible.</li>
+            <li>Unsupported, corrupted, or converter-required imports are not sent to backend matching.</li>
+            <li>Current backend matching uses active curated reference sets unless the saved local-reference toggle is enabled.</li>
             <li>Previewed/saved reference peaks are not chemical identity confirmation.</li>
             <li>Phase purity is not confirmed.</li>
           </ul>

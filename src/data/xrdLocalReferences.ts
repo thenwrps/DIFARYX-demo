@@ -2,6 +2,10 @@ import type {
   XRDLocalReferenceParseResult,
   XRDLocalReferenceParseStatus,
   XRDLocalReferencePeak,
+  XRDReferenceFileKind,
+  XRDReferenceImportCapability,
+  XRDReferenceImportDiagnostics,
+  XRDReferenceTextBinaryLikelihood,
 } from '../types/xrdLocalReference';
 import type { XRDLocalReferencePayload } from '../types/xrdBackend';
 
@@ -62,7 +66,52 @@ function compactPeak(peak: XRDLocalReferencePeak): XRDLocalReferencePeak {
   };
 }
 
+function getFallbackImportDiagnostics(parseResult: XRDLocalReferenceParseResult): XRDReferenceImportDiagnostics {
+  const warnings = compactMessages(parseResult.validation?.warnings);
+  const errors = compactMessages(parseResult.validation?.errors);
+  const isEligibleForBackendMatching = Boolean(
+    parseResult.isEligibleForBackendMatching
+      ?? (parseResult.peaks.length >= 3 && errors.length === 0 && parseResult.status === 'parsed_preview'),
+  );
+
+  return {
+    fileKind: (parseResult.fileKind ?? 'text_peak_list') as XRDReferenceFileKind,
+    ...(parseResult.detectedFormat ? { detectedFormat: parseResult.detectedFormat } : {}),
+    ...(parseResult.fileSizeBytes !== undefined ? { fileSizeBytes: parseResult.fileSizeBytes } : {}),
+    textBinaryLikelihood: (parseResult.textBinaryLikelihood ?? 'unknown') as XRDReferenceTextBinaryLikelihood,
+    parsedRowCount: parseResult.parsedRowCount ?? parseResult.peaks.length,
+    ignoredRowCount: parseResult.ignoredRowCount ?? 0,
+    warnings,
+    errors,
+    isEligibleForBackendMatching,
+  };
+}
+
+function getFallbackImportCapability(
+  parseResult: XRDLocalReferenceParseResult,
+  diagnostics: XRDReferenceImportDiagnostics,
+): XRDReferenceImportCapability {
+  return {
+    canPreview: parseResult.peaks.length > 0,
+    canParsePeaks: parseResult.peaks.length > 0,
+    requiresConverter: parseResult.status === 'requires_converter',
+    plannedConverter: parseResult.status === 'requires_converter' || parseResult.status === 'not_supported_yet',
+    isEligibleForBackendMatching: diagnostics.isEligibleForBackendMatching,
+    notes: parseResult.importCapability?.notes?.slice(0, MAX_STORED_MESSAGES) ?? [],
+  };
+}
+
 function compactParseResult(parseResult: XRDLocalReferenceParseResult): XRDLocalReferenceParseResult {
+  const peaks = parseResult.peaks
+    .filter((peak) => Number.isFinite(peak.twoTheta))
+    .slice(0, MAX_STORED_PEAKS_PER_DRAFT)
+    .map(compactPeak);
+  const diagnostics = getFallbackImportDiagnostics({
+    ...parseResult,
+    peaks,
+  });
+  const importCapability = getFallbackImportCapability(parseResult, diagnostics);
+
   return {
     sourceFileName: parseResult.sourceFileName,
     ...(parseResult.sourceFileType ? { sourceFileType: parseResult.sourceFileType } : {}),
@@ -72,10 +121,7 @@ function compactParseResult(parseResult: XRDLocalReferenceParseResult): XRDLocal
     ...(parseResult.formula ? { formula: parseResult.formula } : {}),
     ...(parseResult.materialFamily ? { materialFamily: parseResult.materialFamily } : {}),
     elements: parseResult.elements.slice(0, 16),
-    peaks: parseResult.peaks
-      .filter((peak) => Number.isFinite(peak.twoTheta))
-      .slice(0, MAX_STORED_PEAKS_PER_DRAFT)
-      .map(compactPeak),
+    peaks,
     validation: {
       hasTwoTheta: parseResult.validation.hasTwoTheta,
       hasAtLeastThreePeaks: parseResult.validation.hasAtLeastThreePeaks,
@@ -84,6 +130,15 @@ function compactParseResult(parseResult: XRDLocalReferenceParseResult): XRDLocal
       warnings: compactMessages(parseResult.validation.warnings),
       errors: compactMessages(parseResult.validation.errors),
     },
+    fileKind: diagnostics.fileKind,
+    ...(diagnostics.detectedFormat ? { detectedFormat: diagnostics.detectedFormat } : {}),
+    ...(diagnostics.fileSizeBytes !== undefined ? { fileSizeBytes: diagnostics.fileSizeBytes } : {}),
+    textBinaryLikelihood: diagnostics.textBinaryLikelihood,
+    parsedRowCount: diagnostics.parsedRowCount,
+    ignoredRowCount: diagnostics.ignoredRowCount,
+    importDiagnostics: diagnostics,
+    importCapability,
+    isEligibleForBackendMatching: diagnostics.isEligibleForBackendMatching,
     backendAvailable: false,
     usedForMatching: false,
   };
@@ -178,7 +233,15 @@ export function getXrdLocalReferenceValidationLevel(
   parseResult: XRDLocalReferenceParseResult,
 ): XRDLocalReferenceValidationLevel {
   const { validation } = parseResult;
-  if (!validation.hasTwoTheta || validation.errors.length > 0 || parseResult.status === 'parse_error') {
+  if (
+    !validation.hasTwoTheta
+    || validation.errors.length > 0
+    || parseResult.status === 'parse_error'
+    || parseResult.status === 'corrupted_file'
+    || parseResult.status === 'unsupported_format'
+    || parseResult.status === 'requires_converter'
+    || parseResult.status === 'not_supported_yet'
+  ) {
     return 'invalid_preview';
   }
   if (validation.hasAtLeastThreePeaks && validation.hasRelativeIntensity) {
@@ -252,6 +315,12 @@ export function deleteXrdLocalReferenceDraft(id: string): boolean {
   const next = existing.filter((record) => record.id !== id);
   if (next.length === existing.length) return false;
   return writeAll(next);
+}
+
+export function isXrdLocalReferenceDraftEligibleForBackend(
+  draft: XRDStoredLocalReferenceRecord | null | undefined,
+): boolean {
+  return Boolean(draft?.parseResult.isEligibleForBackendMatching);
 }
 
 export function buildXrdLocalReferencePayloadFromDraft(

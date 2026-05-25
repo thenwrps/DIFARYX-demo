@@ -1,9 +1,8 @@
 /**
- * XRD Local Reference Contract (Phase 7D.1)
+ * XRD Local Reference Contract
  *
- * Frontend contract for uploaded/project-local reference metadata.
- * These are not yet used for backend matching in Phase 7D.1.
- * They remain informational placeholders only.
+ * Frontend contract for uploaded/project-local reference metadata,
+ * import diagnostics, and request-scoped matching eligibility.
  */
 
 export type XRDLocalReferenceSourceType = "uploaded_reference" | "project_local_reference";
@@ -14,6 +13,54 @@ export type XRDLocalReferenceValidationStatus =
   | "validated_for_project"
   | "not_supported_yet";
 
+export type XRDReferenceImportStatus =
+  | "not_uploaded"
+  | "detected"
+  | "parsed_preview"
+  | "repaired_preview"
+  | "partial_preview"
+  | "unsupported_format"
+  | "corrupted_file"
+  | "parse_error"
+  | "requires_converter"
+  | "not_supported_yet";
+
+export type XRDReferenceFileKind =
+  | "text_peak_list"
+  | "exported_text_pattern"
+  | "instrument_native"
+  | "crystallographic_cif"
+  | "reference_database_card"
+  | "unknown_binary"
+  | "unknown_text";
+
+export type XRDReferenceTextBinaryLikelihood =
+  | "likely_text"
+  | "likely_binary"
+  | "mixed"
+  | "unknown";
+
+export interface XRDReferenceImportDiagnostics {
+  fileKind: XRDReferenceFileKind;
+  detectedFormat?: string;
+  fileSizeBytes?: number;
+  textBinaryLikelihood: XRDReferenceTextBinaryLikelihood;
+  parsedRowCount: number;
+  ignoredRowCount: number;
+  warnings: string[];
+  errors: string[];
+  isEligibleForBackendMatching: boolean;
+}
+
+export interface XRDReferenceImportCapability {
+  canPreview: boolean;
+  canParsePeaks: boolean;
+  requiresConverter: boolean;
+  plannedConverter: boolean;
+  isEligibleForBackendMatching: boolean;
+  notes: string[];
+}
+
 export interface XRDLocalReferencePeak {
   twoTheta: number;
   relativeIntensity?: number;
@@ -21,11 +68,7 @@ export interface XRDLocalReferencePeak {
   dSpacing?: number;
 }
 
-export type XRDLocalReferenceParseStatus =
-  | "not_uploaded"
-  | "parsed_preview"
-  | "parse_error"
-  | "not_supported_yet";
+export type XRDLocalReferenceParseStatus = XRDReferenceImportStatus;
 
 export interface XRDLocalReferenceValidation {
   hasTwoTheta: boolean;
@@ -47,8 +90,34 @@ export interface XRDLocalReferenceParseResult {
   elements: string[];
   peaks: XRDLocalReferencePeak[];
   validation: XRDLocalReferenceValidation;
+  fileKind: XRDReferenceFileKind;
+  detectedFormat?: string;
+  fileSizeBytes?: number;
+  textBinaryLikelihood: XRDReferenceTextBinaryLikelihood;
+  parsedRowCount: number;
+  ignoredRowCount: number;
+  importDiagnostics: XRDReferenceImportDiagnostics;
+  importCapability: XRDReferenceImportCapability;
+  isEligibleForBackendMatching: boolean;
   backendAvailable: false;
   usedForMatching: false;
+}
+
+export interface XRDReferenceImportResult {
+  sourceFileName: string;
+  sourceFileType?: ".csv" | ".txt" | ".xy" | ".dat";
+  importedAt: string;
+  status: XRDReferenceImportStatus;
+  fileKind: XRDReferenceFileKind;
+  detectedFormat?: string;
+  fileSizeBytes?: number;
+  textBinaryLikelihood: XRDReferenceTextBinaryLikelihood;
+  parsedRowCount: number;
+  ignoredRowCount: number;
+  diagnostics: XRDReferenceImportDiagnostics;
+  capability: XRDReferenceImportCapability;
+  parseResult: XRDLocalReferenceParseResult;
+  isEligibleForBackendMatching: boolean;
 }
 
 export interface XRDLocalReferenceMetadata {
@@ -67,6 +136,24 @@ export interface XRDLocalReferenceMetadata {
 }
 
 export function createEmptyXrdLocalReferenceParseResult(): XRDLocalReferenceParseResult {
+  const importDiagnostics: XRDReferenceImportDiagnostics = {
+    fileKind: "unknown_text",
+    textBinaryLikelihood: "unknown",
+    parsedRowCount: 0,
+    ignoredRowCount: 0,
+    warnings: [],
+    errors: [],
+    isEligibleForBackendMatching: false,
+  };
+  const importCapability: XRDReferenceImportCapability = {
+    canPreview: false,
+    canParsePeaks: false,
+    requiresConverter: false,
+    plannedConverter: false,
+    isEligibleForBackendMatching: false,
+    notes: [],
+  };
+
   return {
     sourceFileName: "",
     parsedAt: new Date(0).toISOString(),
@@ -81,6 +168,13 @@ export function createEmptyXrdLocalReferenceParseResult(): XRDLocalReferencePars
       warnings: [],
       errors: [],
     },
+    fileKind: "unknown_text",
+    textBinaryLikelihood: "unknown",
+    parsedRowCount: 0,
+    ignoredRowCount: 0,
+    importDiagnostics,
+    importCapability,
+    isEligibleForBackendMatching: false,
     backendAvailable: false,
     usedForMatching: false,
   };
@@ -92,18 +186,30 @@ export function getXrdLocalReferenceValidationStatusLabel(status: XRDLocalRefere
       return "Not uploaded";
     case "parsed_preview":
       return "Parsed preview";
+    case "repaired_preview":
+      return "Repaired preview";
+    case "partial_preview":
+      return "Partial preview";
+    case "unsupported_format":
+      return "Unsupported format";
+    case "corrupted_file":
+      return "Corrupted file";
     case "parse_error":
       return "Parse error";
+    case "requires_converter":
+      return "Converter required";
     case "not_supported_yet":
-      return "Backend matching not supported yet";
+      return "Not supported yet";
+    case "detected":
+      return "Detected";
     default:
       return status;
   }
 }
 
 /**
- * Planned local reference registry entries (Phase 7D.1 placeholder).
- * These are not selectable for backend matching yet.
+ * Planned local reference registry entries.
+ * These placeholder entries are not selectable for backend matching.
  */
 export const PLANNED_XRD_LOCAL_REFERENCES: XRDLocalReferenceMetadata[] = [
   {
@@ -114,9 +220,9 @@ export const PLANNED_XRD_LOCAL_REFERENCES: XRDLocalReferenceMetadata[] = [
     validationStatus: "not_supported_yet",
     backendAvailable: false,
     notes: [
-      "Uploaded local references are planned for a future phase.",
-      "They are not used for backend matching yet.",
-      "Current backend matching uses active curated reference sets only.",
+      "Uploaded local reference registry entries are planned for a future phase.",
+      "This placeholder entry is not selectable for backend matching.",
+      "Use an eligible saved parsed preview and explicit toggle for request-scoped matching.",
     ],
   },
   {
@@ -128,8 +234,8 @@ export const PLANNED_XRD_LOCAL_REFERENCES: XRDLocalReferenceMetadata[] = [
     backendAvailable: false,
     notes: [
       "Project-local reference sets are planned for a future phase.",
-      "They are not used for backend matching yet.",
-      "Current backend matching uses active curated reference sets only.",
+      "This placeholder entry is not selectable for backend matching.",
+      "Use an eligible saved parsed preview and explicit toggle for request-scoped matching.",
     ],
   },
 ];
