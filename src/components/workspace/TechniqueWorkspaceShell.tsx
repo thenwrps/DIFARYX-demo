@@ -172,6 +172,7 @@ const XRD_LOCAL_REFERENCE_STATUS_PREVIEW = [
   { label: 'Not uploaded', detail: 'No local reference file is attached.' },
   { label: 'Parsed preview', detail: 'A supported text peak list was parsed for frontend review.' },
   { label: 'Partial preview', detail: 'Readable peak rows were kept and malformed rows were reported.' },
+  { label: 'Peak extraction required', detail: 'Measured pattern imports need peak extraction before backend local-reference matching.' },
   { label: 'Requires converter', detail: 'Instrument-native, CIF, or reference-card files need a converter before preview or matching.' },
   { label: 'Unsupported or corrupted', detail: 'Damaged, binary, or unsupported files remain blocked from backend matching.' },
 ];
@@ -3001,6 +3002,22 @@ function formatXrdCifConversionMode(mode: string | undefined) {
   }
 }
 
+function formatXrdmlRange(parseResult: XRDLocalReferenceParseResult) {
+  const preview = parseResult.xrdmlPatternPreview;
+  if (!preview || preview.twoThetaMin === undefined || preview.twoThetaMax === undefined) return 'Not available';
+  return `${formatReferenceMatchNumber(preview.twoThetaMin, 3)} to ${formatReferenceMatchNumber(preview.twoThetaMax, 3)} deg`;
+}
+
+function formatXrdmlIntensityRange(parseResult: XRDLocalReferenceParseResult) {
+  const preview = parseResult.xrdmlPatternPreview;
+  if (!preview || preview.intensityMin === undefined || preview.intensityMax === undefined) return 'Not available';
+  return `${formatReferenceMatchNumber(preview.intensityMin, 1)} to ${formatReferenceMatchNumber(preview.intensityMax, 1)}`;
+}
+
+function formatXrdmlStep(value: number | undefined) {
+  return value !== undefined ? `${formatReferenceMatchNumber(value, 5)} deg` : 'Not available';
+}
+
 function getXrdLocalReferenceDraftsForContext(projectId?: string, uploadedRunId?: string) {
   const drafts = listXrdLocalReferenceDrafts(projectId);
   if (uploadedRunId) {
@@ -3064,13 +3081,17 @@ function XRDParametersPanel({
   ));
   const [localReferenceSaveStatus, setLocalReferenceSaveStatus] = useState<string | null>(null);
   const localReferenceValidationLevel = getXrdLocalReferenceValidationLevel(localReferenceParsePreview);
-  const canSaveLocalReferencePreview = (
+  const hasSavableXrdmlPreview = Boolean(localReferenceParsePreview.xrdmlMetadata)
+    && localReferenceParsePreview.status === 'requires_peak_extraction'
+    && localReferenceParsePreview.validation.errors.length === 0;
+  const canSaveLocalReferencePreview = ((
     localReferenceParsePreview.status === 'parsed_preview'
     || localReferenceParsePreview.status === 'partial_preview'
     || localReferenceParsePreview.status === 'repaired_preview'
   )
     && localReferenceParsePreview.peaks.length > 0
-    && localReferenceValidationLevel !== 'invalid_preview';
+    && localReferenceValidationLevel !== 'invalid_preview')
+    || hasSavableXrdmlPreview;
   const latestLocalReferenceDraft = localReferenceDrafts[0] ?? null;
   const latestLocalReferenceDraftEligible = isXrdLocalReferenceDraftEligibleForBackend(latestLocalReferenceDraft);
 
@@ -3563,10 +3584,10 @@ function XRDParametersPanel({
             <div>
               <p className="text-[10px] font-bold text-blue-950">Upload local reference pattern</p>
               <p className="mt-0.5 text-[10px] leading-relaxed text-blue-900">
-                Currently preview-supported: exported text peak lists / text patterns ({XRD_LOCAL_REFERENCE_PREVIEW_SUPPORTED_FORMATS.join(', ')}) and CIF metadata previews (.cif).
+                Currently preview-supported: exported text peak lists / text patterns ({XRD_LOCAL_REFERENCE_PREVIEW_SUPPORTED_FORMATS.join(', ')}), CIF metadata previews (.cif), and XRDML measured pattern previews (.xrdml).
               </p>
               <p className="mt-0.5 text-[10px] leading-relaxed text-blue-900">
-                Planned converters: instrument-native files ({XRD_LOCAL_REFERENCE_PLANNED_CONVERTER_FORMATS.filter((format) => format !== '.cif').join(', ')}), full CIF structure-to-pattern simulation, and database/reference-card exports.
+                Planned converters: instrument-native files ({XRD_LOCAL_REFERENCE_PLANNED_CONVERTER_FORMATS.filter((format) => format !== '.cif' && format !== '.xrdml').join(', ')}), full CIF/XRDML peak conversion, and database/reference-card exports.
               </p>
               <p className="mt-0.5 text-[10px] leading-relaxed text-blue-900">
                 Damaged, binary, or incomplete files are checked and reported before use.
@@ -3661,6 +3682,32 @@ function XRDParametersPanel({
                 <li>- CIF-derived peaks are not chemical identity confirmation.</li>
                 <li>- Phase purity is not confirmed.</li>
                 <li>- Full structure-to-pattern simulation requires crystallographic validation.</li>
+              </ul>
+            </div>
+          )}
+          {localReferenceParsePreview.xrdmlMetadata && (
+            <div className="mt-2 rounded border border-cyan-200 bg-cyan-50 px-2 py-1.5">
+              <p className="text-[9px] font-bold uppercase tracking-wide text-cyan-900">XRDML pattern preview</p>
+              <div className="mt-1 grid grid-cols-2 gap-1">
+                <Metric label="Detected format" value="XRDML measured pattern" />
+                <Metric label="Scan axis" value={localReferenceParsePreview.xrdmlMetadata.scanAxis || 'Not available'} />
+                <Metric label="Parsed points" value={localReferenceParsePreview.xrdmlMetadata.parsedPointCount} />
+                <Metric label="2theta range" value={formatXrdmlRange(localReferenceParsePreview)} />
+                <Metric label="Step" value={formatXrdmlStep(localReferenceParsePreview.xrdmlMetadata.commonStep)} />
+                <Metric label="Intensity range" value={formatXrdmlIntensityRange(localReferenceParsePreview)} />
+                <Metric label="Wavelength" value={formatReferenceMatchNumber(localReferenceParsePreview.xrdmlMetadata.wavelengthAngstrom, 5)} />
+                <Metric label="Vendor" value={localReferenceParsePreview.xrdmlMetadata.vendor || 'Not available'} />
+                <Metric label="Instrument" value={localReferenceParsePreview.xrdmlMetadata.instrument || 'Not available'} />
+                <Metric label="Measurement date" value={localReferenceParsePreview.xrdmlMetadata.measurementDate || 'Not available'} />
+              </div>
+              <p className="mt-2 rounded border border-cyan-100 bg-white/70 px-2 py-1 text-[10px] leading-relaxed text-cyan-900">
+                Not eligible for backend local reference matching until converted into a validated peak list.
+              </p>
+              <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-cyan-900">
+                <li>- XRDML measured pattern import is preview-only in this phase.</li>
+                <li>- A measured pattern is not automatically a validated reference.</li>
+                <li>- Local reference matching remains request-scoped candidate evidence only.</li>
+                <li>- Chemical identity and phase purity are not confirmed.</li>
               </ul>
             </div>
           )}
@@ -3769,6 +3816,17 @@ function XRDParametersPanel({
                   </div>
                 </div>
               )}
+              {latestLocalReferenceDraft.parseResult.xrdmlMetadata && (
+                <div className="mt-2 rounded border border-cyan-200 bg-cyan-50 px-2 py-1.5">
+                  <p className="text-[9px] font-bold uppercase tracking-wide text-cyan-900">Saved XRDML preview</p>
+                  <div className="mt-1 grid grid-cols-2 gap-1">
+                    <Metric label="Points" value={latestLocalReferenceDraft.parseResult.xrdmlMetadata.parsedPointCount} />
+                    <Metric label="2theta range" value={formatXrdmlRange(latestLocalReferenceDraft.parseResult)} />
+                    <Metric label="Vendor" value={latestLocalReferenceDraft.parseResult.xrdmlMetadata.vendor || 'Not available'} />
+                    <Metric label="Step" value={formatXrdmlStep(latestLocalReferenceDraft.parseResult.xrdmlMetadata.commonStep)} />
+                  </div>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => handleDeleteLocalReferenceDraft(latestLocalReferenceDraft.id)}
@@ -3840,6 +3898,8 @@ function XRDParametersPanel({
             <li>Unsupported, corrupted, or converter-required imports are not sent to backend matching.</li>
             <li>Current backend matching uses active curated reference sets unless the saved local-reference toggle is enabled.</li>
             <li>CIF import is reference-source metadata only in this phase.</li>
+            <li>XRDML measured pattern import is preview-only in this phase.</li>
+            <li>A measured pattern is not automatically a validated reference.</li>
             <li>Full structure-to-pattern simulation requires crystallographic validation.</li>
             <li>Previewed/saved reference peaks are not chemical identity confirmation.</li>
             <li>Phase purity is not confirmed.</li>

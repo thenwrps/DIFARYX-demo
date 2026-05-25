@@ -22,12 +22,14 @@ export type XRDReferenceImportStatus =
   | "unsupported_format"
   | "corrupted_file"
   | "parse_error"
+  | "requires_peak_extraction"
   | "requires_converter"
   | "not_supported_yet";
 
 export type XRDReferenceFileKind =
   | "text_peak_list"
   | "exported_text_pattern"
+  | "xrdml_measured_pattern"
   | "instrument_native"
   | "crystallographic_cif"
   | "reference_database_card"
@@ -97,6 +99,32 @@ export interface XRDCifMetadata {
   conversionMode: "metadata_only" | "estimated_peak_preview" | "not_supported_yet";
 }
 
+export interface XRDXrdmlMetadata {
+  scanAxis?: string;
+  startPosition?: number;
+  endPosition?: number;
+  commonStep?: number;
+  stepCount?: number;
+  wavelengthAngstrom?: number;
+  measurementDate?: string;
+  instrument?: string;
+  vendor?: string;
+  parsedPointCount: number;
+  hasIntensityArray: boolean;
+  hasPositionArray: boolean;
+  conversionMode: "pattern_preview" | "requires_peak_extraction" | "not_supported_yet";
+}
+
+export interface XRDXrdmlPatternPreview {
+  x: number[];
+  y: number[];
+  pointCount: number;
+  twoThetaMin?: number;
+  twoThetaMax?: number;
+  intensityMin?: number;
+  intensityMax?: number;
+}
+
 export interface XRDLocalReferenceParseResult {
   sourceFileName: string;
   sourceFileType?: ".csv" | ".txt" | ".xy" | ".dat";
@@ -111,6 +139,8 @@ export interface XRDLocalReferenceParseResult {
   crystalSystem?: string;
   cellParameters?: XRDLocalReferenceCellParameters;
   cifMetadata?: XRDCifMetadata;
+  xrdmlMetadata?: XRDXrdmlMetadata;
+  xrdmlPatternPreview?: XRDXrdmlPatternPreview;
   elements: string[];
   peaks: XRDLocalReferencePeak[];
   validation: XRDLocalReferenceValidation;
@@ -220,6 +250,8 @@ export function getXrdLocalReferenceValidationStatusLabel(status: XRDLocalRefere
       return "Corrupted file";
     case "parse_error":
       return "Parse error";
+    case "requires_peak_extraction":
+      return "Peak extraction required";
     case "requires_converter":
       return "Converter required";
     case "not_supported_yet":

@@ -13,6 +13,7 @@ export const XRD_LOCAL_REFERENCES_STORAGE_KEY = 'difaryx.xrdLocalReferences.v1';
 
 const MAX_STORED_DRAFTS = 8;
 const MAX_STORED_PEAKS_PER_DRAFT = 200;
+const MAX_STORED_XRDML_PATTERN_POINTS = 200;
 const MAX_STORED_MESSAGES = 12;
 
 export type XRDLocalReferenceValidationLevel =
@@ -91,11 +92,14 @@ function getFallbackImportCapability(
   parseResult: XRDLocalReferenceParseResult,
   diagnostics: XRDReferenceImportDiagnostics,
 ): XRDReferenceImportCapability {
+  const hasMetadataPreview = Boolean(parseResult.cifMetadata || parseResult.xrdmlMetadata);
   return {
-    canPreview: parseResult.peaks.length > 0,
+    canPreview: parseResult.peaks.length > 0 || hasMetadataPreview,
     canParsePeaks: parseResult.peaks.length > 0,
     requiresConverter: parseResult.status === 'requires_converter',
-    plannedConverter: parseResult.status === 'requires_converter' || parseResult.status === 'not_supported_yet',
+    plannedConverter: parseResult.status === 'requires_converter'
+      || parseResult.status === 'requires_peak_extraction'
+      || parseResult.status === 'not_supported_yet',
     isEligibleForBackendMatching: diagnostics.isEligibleForBackendMatching,
     notes: parseResult.importCapability?.notes?.slice(0, MAX_STORED_MESSAGES) ?? [],
   };
@@ -126,6 +130,14 @@ function compactParseResult(parseResult: XRDLocalReferenceParseResult): XRDLocal
     ...(parseResult.crystalSystem ? { crystalSystem: parseResult.crystalSystem } : {}),
     ...(parseResult.cellParameters ? { cellParameters: parseResult.cellParameters } : {}),
     ...(parseResult.cifMetadata ? { cifMetadata: parseResult.cifMetadata } : {}),
+    ...(parseResult.xrdmlMetadata ? { xrdmlMetadata: parseResult.xrdmlMetadata } : {}),
+    ...(parseResult.xrdmlPatternPreview ? {
+      xrdmlPatternPreview: {
+        ...parseResult.xrdmlPatternPreview,
+        x: parseResult.xrdmlPatternPreview.x.slice(0, MAX_STORED_XRDML_PATTERN_POINTS),
+        y: parseResult.xrdmlPatternPreview.y.slice(0, MAX_STORED_XRDML_PATTERN_POINTS),
+      },
+    } : {}),
     elements: parseResult.elements.slice(0, 16),
     peaks,
     validation: {
@@ -245,6 +257,7 @@ export function getXrdLocalReferenceValidationLevel(
     || parseResult.status === 'parse_error'
     || parseResult.status === 'corrupted_file'
     || parseResult.status === 'unsupported_format'
+    || parseResult.status === 'requires_peak_extraction'
     || parseResult.status === 'requires_converter'
     || parseResult.status === 'not_supported_yet'
   ) {

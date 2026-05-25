@@ -1,5 +1,7 @@
 import type {
   XRDCifMetadata,
+  XRDXrdmlMetadata,
+  XRDXrdmlPatternPreview,
   XRDLocalReferenceCellParameters,
   XRDLocalReferenceParseResult,
   XRDLocalReferencePeak,
@@ -36,6 +38,16 @@ const CIF_STRUCTURE_NAME_TAGS = ['_chemical_name_common', '_chemical_name_minera
 const CIF_SPACE_GROUP_TAGS = ['_space_group_name_h-m_alt', '_symmetry_space_group_name_h-m'];
 const CIF_CRYSTAL_SYSTEM_TAGS = ['_space_group_crystal_system', '_symmetry_cell_setting'];
 const CU_K_ALPHA_WAVELENGTH_ANGSTROM = 1.5406;
+const XRDML_MARKERS = [
+  '<xrdmeasurement',
+  '<scan',
+  '<positions',
+  '<intensities',
+  'panalytical',
+  'malvern panalytical',
+  'xrdml',
+];
+const XRDML_PATTERN_PREVIEW_POINT_LIMIT = 200;
 
 type ColumnKey = 'twoTheta' | 'relativeIntensity' | 'hkl' | 'dSpacing';
 type ColumnIndexes = Partial<Record<ColumnKey, number>>;
@@ -80,6 +92,7 @@ function detectReferenceFile(text: string, sourceFileName: string): FileDetectio
   const textBinaryLikelihood = getTextBinaryLikelihood(text);
   const lowerText = text.slice(0, 4096).toLowerCase();
   const hasCifMarker = CIF_MARKERS.some((marker) => lowerText.includes(marker));
+  const hasXrdmlMarker = XRDML_MARKERS.some((marker) => lowerText.includes(marker));
 
   if (textBinaryLikelihood === 'likely_binary') {
     return {
@@ -106,7 +119,13 @@ function detectReferenceFile(text: string, sourceFileName: string): FileDetectio
   }
 
   if (INSTRUMENT_NATIVE_EXTENSIONS.has(extension ?? '')) {
+    if (extension === '.xrdml' || hasXrdmlMarker) {
+      return { extension, fileKind: 'xrdml_measured_pattern', detectedFormat: 'XRDML measured pattern', textBinaryLikelihood };
+    }
     return { extension, fileKind: 'instrument_native', detectedFormat: extension, textBinaryLikelihood };
+  }
+  if (hasXrdmlMarker) {
+    return { extension, fileKind: 'xrdml_measured_pattern', detectedFormat: 'XRDML measured pattern', textBinaryLikelihood };
   }
   if (CIF_EXTENSIONS.has(extension ?? '') || hasCifMarker) {
     return { extension, fileKind: 'crystallographic_cif', detectedFormat: 'CIF structure file', textBinaryLikelihood };
@@ -361,6 +380,157 @@ function getCifAtomSiteCount(loops: CifLoop[]) {
   return atomSiteLoop?.rows.length;
 }
 
+function decodeXmlText(value: string | undefined) {
+  return value
+    ?.replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .trim() || undefined;
+}
+
+function getXmlTagValues(text: string, tagName: string) {
+  const pattern = new RegExp(`<(?:\\w+:)?${tagName}\\b[^>]*>([\\s\\S]*?)<\\/(?:\\w+:)?${tagName}>`, 'gi');
+  const values: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    const value = decodeXmlText(match[1]);
+    if (value) values.push(value);
+  }
+  return values;
+}
+
+function getXmlTagValue(text: string, tagNames: string[]) {
+  for (const tagName of tagNames) {
+    const value = getXmlTagValues(text, tagName)[0];
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function getXmlBlocks(text: string, tagName: string) {
+  const pattern = new RegExp(`<((?:\\w+:)?${tagName})\\b([^>]*)>([\\s\\S]*?)<\\/\\1>`, 'gi');
+  const blocks: Array<{ attributes: string; content: string }> = [];
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    blocks.push({ attributes: match[2] ?? '', content: match[3] ?? '' });
+  }
+  return blocks;
+}
+
+function getXmlAttribute(attributes: string | undefined, name: string) {
+  const match = attributes?.match(new RegExp(`${name}\\s*=\\s*["']([^"']+)["']`, 'i'));
+  return decodeXmlText(match?.[1]);
+}
+
+function parseNumberList(value: string | undefined) {
+  if (!value) return [];
+  return value
+    .split(/[\s,;]+/)
+    .map((token) => Number(token.trim()))
+    .filter((number) => Number.isFinite(number));
+}
+
+function parseXrdmlNumber(value: string | undefined) {
+  if (!value) return undefined;
+  const parsed = Number(value.trim());
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function getNumberRange(values: number[]) {
+  if (values.length === 0) return {};
+  return {
+    min: Math.min(...values),
+    max: Math.max(...values),
+  };
+}
+
+function extractXrdmlIntensities(text: string) {
+  const intensityLists = getXmlTagValues(text, 'intensities')
+    .map(parseNumberList)
+    .filter((values) => values.length > 0)
+    .sort((a, b) => b.length - a.length);
+  return intensityLists[0] ?? [];
+}
+
+function extractXrdmlPositions(text: string, intensityCount: number) {
+  const positionBlocks = getXmlBlocks(text, 'positions');
+  const twoThetaBlock = positionBlocks.find((block) => {
+    const axis = getXmlAttribute(block.attributes, 'axis');
+    return axis?.toLowerCase().includes('2theta');
+  }) ?? positionBlocks[0];
+  const scanAxis = getXmlAttribute(twoThetaBlock?.attributes, 'axis') ?? getXmlTagValue(text, ['scanAxis']);
+  const startPosition = parseXrdmlNumber(getXmlTagValue(twoThetaBlock?.content ?? '', ['startPosition']));
+  const endPosition = parseXrdmlNumber(getXmlTagValue(twoThetaBlock?.content ?? '', ['endPosition']));
+  const explicitPositions = parseNumberList(getXmlTagValue(twoThetaBlock?.content ?? '', ['listPositions']));
+  const commonStep = parseXrdmlNumber(getXmlTagValue(text, ['commonStep']));
+
+  if (explicitPositions.length === intensityCount && intensityCount > 0) {
+    return {
+      positions: explicitPositions,
+      scanAxis,
+      startPosition: explicitPositions[0],
+      endPosition: explicitPositions[explicitPositions.length - 1],
+      commonStep: explicitPositions.length > 1
+        ? Math.abs(explicitPositions[explicitPositions.length - 1] - explicitPositions[0]) / (explicitPositions.length - 1)
+        : commonStep,
+      hasPositionArray: true,
+    };
+  }
+
+  if (startPosition !== undefined && endPosition !== undefined && intensityCount > 1) {
+    const step = commonStep ?? ((endPosition - startPosition) / (intensityCount - 1));
+    return {
+      positions: Array.from({ length: intensityCount }, (_, index) => startPosition + step * index),
+      scanAxis,
+      startPosition,
+      endPosition,
+      commonStep: step,
+      hasPositionArray: false,
+    };
+  }
+
+  return {
+    positions: [] as number[],
+    scanAxis,
+    startPosition,
+    endPosition,
+    commonStep,
+    hasPositionArray: explicitPositions.length > 0,
+  };
+}
+
+function extractXrdmlVendor(text: string) {
+  const lowerText = text.toLowerCase();
+  if (lowerText.includes('malvern panalytical')) return 'Malvern Panalytical';
+  if (lowerText.includes('panalytical')) return 'PANalytical';
+  return getXmlTagValue(text, ['vendor', 'manufacturer']);
+}
+
+function extractXrdmlInstrument(text: string) {
+  return getXmlTagValue(text, ['diffractometerName', 'instrumentName', 'name']);
+}
+
+function buildXrdmlPatternPreview(positions: number[], intensities: number[]): XRDXrdmlPatternPreview | undefined {
+  const pointCount = Math.min(positions.length, intensities.length);
+  if (pointCount === 0) return undefined;
+  const x = positions.slice(0, pointCount);
+  const y = intensities.slice(0, pointCount);
+  const positionRange = getNumberRange(x);
+  const intensityRange = getNumberRange(y);
+
+  return {
+    x: x.slice(0, XRDML_PATTERN_PREVIEW_POINT_LIMIT),
+    y: y.slice(0, XRDML_PATTERN_PREVIEW_POINT_LIMIT),
+    pointCount,
+    ...(positionRange.min !== undefined ? { twoThetaMin: positionRange.min } : {}),
+    ...(positionRange.max !== undefined ? { twoThetaMax: positionRange.max } : {}),
+    ...(intensityRange.min !== undefined ? { intensityMin: intensityRange.min } : {}),
+    ...(intensityRange.max !== undefined ? { intensityMax: intensityRange.max } : {}),
+  };
+}
+
 function parsePeak(tokens: string[], indexes: ColumnIndexes): XRDLocalReferencePeak | null {
   const twoTheta = parseFiniteNumber(tokens[indexes.twoTheta ?? 0]);
   if (twoTheta === undefined) return null;
@@ -413,10 +583,10 @@ function buildCapability(
   notes: string[],
 ): XRDReferenceImportCapability {
   return {
-    canPreview: status === 'parsed_preview' || status === 'partial_preview' || status === 'repaired_preview',
+    canPreview: status === 'parsed_preview' || status === 'partial_preview' || status === 'repaired_preview' || status === 'requires_peak_extraction',
     canParsePeaks: status === 'parsed_preview' || status === 'partial_preview' || status === 'repaired_preview',
     requiresConverter: status === 'requires_converter',
-    plannedConverter: status === 'requires_converter' || status === 'not_supported_yet',
+    plannedConverter: status === 'requires_converter' || status === 'requires_peak_extraction' || status === 'not_supported_yet',
     isEligibleForBackendMatching,
     notes,
   };
@@ -444,6 +614,8 @@ function buildResult(args: {
   crystalSystem?: string;
   cellParameters?: XRDLocalReferenceCellParameters;
   cifMetadata?: XRDCifMetadata;
+  xrdmlMetadata?: XRDXrdmlMetadata;
+  xrdmlPatternPreview?: XRDXrdmlPatternPreview;
   elements?: string[];
 }): XRDLocalReferenceParseResult {
   const isEligibleForBackendMatching = (
@@ -479,6 +651,8 @@ function buildResult(args: {
     ...(args.crystalSystem ? { crystalSystem: args.crystalSystem } : {}),
     ...(args.cellParameters ? { cellParameters: args.cellParameters } : {}),
     ...(args.cifMetadata ? { cifMetadata: args.cifMetadata } : {}),
+    ...(args.xrdmlMetadata ? { xrdmlMetadata: args.xrdmlMetadata } : {}),
+    ...(args.xrdmlPatternPreview ? { xrdmlPatternPreview: args.xrdmlPatternPreview } : {}),
     elements: args.elements ?? [],
     peaks: args.peaks,
     validation,
@@ -616,12 +790,85 @@ export function parseXrdCifReferenceText(
   });
 }
 
+export function parseXrdmlReferenceText(
+  text: string,
+  sourceFileName: string,
+  options: ParseOptions = {},
+): XRDLocalReferenceParseResult {
+  const detection = detectReferenceFile(text, sourceFileName);
+  const intensities = extractXrdmlIntensities(text);
+  const positionResult = extractXrdmlPositions(text, intensities.length);
+  const pointCount = Math.min(positionResult.positions.length, intensities.length);
+  const patternPreview = buildXrdmlPatternPreview(positionResult.positions, intensities);
+  const wavelengthAngstrom = parseXrdmlNumber(getXmlTagValue(text, ['kAlpha1', 'wavelength', 'usedWavelength', 'intendedWavelength']));
+  const measurementDate = getXmlTagValue(text, ['startTimeStamp', 'measurementDateTime', 'date']);
+  const vendor = extractXrdmlVendor(text);
+  const instrument = extractXrdmlInstrument(text);
+  const xrdmlMetadata: XRDXrdmlMetadata = {
+    ...(positionResult.scanAxis ? { scanAxis: positionResult.scanAxis } : {}),
+    ...(positionResult.startPosition !== undefined ? { startPosition: positionResult.startPosition } : {}),
+    ...(positionResult.endPosition !== undefined ? { endPosition: positionResult.endPosition } : {}),
+    ...(positionResult.commonStep !== undefined ? { commonStep: positionResult.commonStep } : {}),
+    ...(pointCount > 0 ? { stepCount: pointCount } : {}),
+    ...(wavelengthAngstrom !== undefined ? { wavelengthAngstrom } : {}),
+    ...(measurementDate ? { measurementDate } : {}),
+    ...(instrument ? { instrument } : {}),
+    ...(vendor ? { vendor } : {}),
+    parsedPointCount: pointCount,
+    hasIntensityArray: intensities.length > 0,
+    hasPositionArray: positionResult.hasPositionArray,
+    conversionMode: pointCount > 0 ? 'pattern_preview' : 'requires_peak_extraction',
+  };
+  const ignoredRowCount = Math.max(0, Math.abs(positionResult.positions.length - intensities.length));
+  const warnings = [
+    'XRDML measured pattern import is preview-only in this phase.',
+    'A measured pattern is not automatically a validated reference.',
+    'XRDML measured patterns require peak extraction or user-declared standard status before use as local reference matching input.',
+    'Local reference matching remains request-scoped candidate evidence only.',
+    'Chemical identity and phase purity are not confirmed.',
+  ];
+  if (ignoredRowCount > 0) {
+    warnings.push('Position and intensity array lengths differ; the preview uses the overlapping point range.');
+  }
+  const errors = text.trim()
+    ? []
+    : ['Unsupported or empty XRDML file.'];
+
+  return buildResult({
+    sourceFileName,
+    fileSizeBytes: options.fileSizeBytes,
+    detection: {
+      ...detection,
+      fileKind: 'xrdml_measured_pattern',
+      detectedFormat: 'XRDML measured pattern',
+    },
+    status: errors.length > 0 ? 'parse_error' : 'requires_peak_extraction',
+    peaks: [],
+    parsedRowCount: pointCount,
+    ignoredRowCount,
+    warnings,
+    errors,
+    capabilityNotes: [
+      'XRDML pattern previews are not converted into backend local reference peaks in this phase.',
+    ],
+    referenceLabel: sourceFileName.replace(/\.[^.]+$/, '') || 'XRDML measured pattern preview',
+    hasRequiredMetadata: Boolean(vendor || instrument || measurementDate || pointCount > 0),
+    materialFamily: 'XRDML measured pattern preview',
+    xrdmlMetadata,
+    xrdmlPatternPreview: patternPreview,
+  });
+}
+
 export function parseXrdLocalReferenceText(
   text: string,
   sourceFileName: string,
   options: ParseOptions = {},
 ): XRDLocalReferenceParseResult {
   const detection = detectReferenceFile(text, sourceFileName);
+
+  if (detection.fileKind === 'xrdml_measured_pattern' && detection.textBinaryLikelihood !== 'likely_binary') {
+    return parseXrdmlReferenceText(text, sourceFileName, options);
+  }
 
   if (detection.fileKind === 'crystallographic_cif' && detection.textBinaryLikelihood !== 'likely_binary') {
     return parseXrdCifReferenceText(text, sourceFileName, options);
