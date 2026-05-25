@@ -128,6 +128,7 @@ import {
 } from '../../data/xrdLocalReferences';
 import { XRDReadinessPanel } from './xrd/XRDReadinessPanel';
 import { XRDBoundaryPanel } from './xrd/XRDBoundaryPanel';
+import { XRDLocalReferencePanel } from './xrd/XRDLocalReferencePanel';
 import { saveXrdBackendEvidenceResult } from '../../data/xrdBackendEvidence';
 import { runRamanProcessing } from '../../agents/ramanAgent/runner';
 import { getRamanProcessingParams, getRamanParameterSnapshot } from '../../utils/ramanParameterAdapter';
@@ -3586,429 +3587,45 @@ function XRDParametersPanel({
         </div>
       </Panel>
 
-      <Panel title="Project / Uploaded Local References" icon={<Layers size={13} />}>
-        <div className="space-y-2">
-          <div className="rounded border border-border bg-background px-2 py-2">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-[9px] font-bold uppercase tracking-wide text-text-muted">Local Reference Workflow Summary</p>
-                <p className="mt-0.5 text-[10px] leading-relaxed text-text-muted">
-                  Import, validate, approve, then explicitly enable a saved local reference for a backend run.
-                </p>
-              </div>
-              <span className="shrink-0 rounded-full border border-border bg-surface-alt px-2 py-0.5 text-[9px] font-bold text-text-muted">
-                {localReferenceDrafts.length} saved
-              </span>
-            </div>
-            <div className="mt-2 grid grid-cols-2 gap-1">
-              <Metric label="Import status" value={getXrdLocalReferenceValidationStatusLabel(localReferenceParsePreview.status)} />
-              <Metric label="Validation level" value={getXrdLocalReferenceValidationLevelLabel(localReferenceValidationLevel)} />
-              <Metric label="Approval status" value={localReferenceApprovalStatusLabel} />
-              <Metric label="Backend use" value={localReferenceBackendUseStatus} />
-              <Metric label="Saved draft" value={latestLocalReferenceDraft?.sourceFileName ?? 'None'} />
-              <Metric label="Curated set" value={parameters.referenceMatch.referenceSetId ?? 'Not selected'} />
-            </div>
-            <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] leading-relaxed text-amber-900">
-              Approval only allows request-scoped local reference matching. Approval does not confirm chemical identity or phase purity. Local reference provenance remains user/lab responsibility.
-            </p>
-          </div>
-
-          <div className="rounded border border-blue-200 bg-blue-50 px-2 py-2">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-[9px] font-bold uppercase tracking-wide text-blue-900">1. Import & Preview</p>
-                <p className="mt-0.5 text-[10px] font-bold text-blue-950">Import local XRD reference file</p>
-              </div>
-              <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-800">
-                Preview only
-              </span>
-            </div>
-            <p className="mt-1 text-[10px] leading-relaxed text-blue-900">
-              Preview-supported text peak lists / patterns: {XRD_LOCAL_REFERENCE_PREVIEW_SUPPORTED_FORMATS.join(', ')}. CIF metadata preview and XRDML measured pattern preview remain diagnostic unless converted into a validated peak list.
-            </p>
-            <label className="mt-2 block rounded border border-blue-100 bg-white/70 px-2 py-1.5">
-              <XRDFieldLabel label="Local reference file" />
-              <input
-                type="file"
-                accept={XRD_LOCAL_REFERENCE_SELECTABLE_FORMATS.join(',')}
-                onChange={handleLocalReferenceFileChange}
-                className="mt-1 block w-full text-[10px] text-text-muted file:mr-2 file:rounded file:border-0 file:bg-blue-100 file:px-2 file:py-1 file:text-[10px] file:font-bold file:text-blue-800"
-              />
-            </label>
-            <div className="mt-2 grid grid-cols-2 gap-1">
-              <Metric label="Source file" value={localReferenceParsePreview.sourceFileName || 'No file selected'} />
-              <Metric label="Detected kind" value={formatXrdReferenceFileKind(localReferenceParsePreview.fileKind)} />
-              <Metric label="Detected format" value={localReferenceParsePreview.detectedFormat || 'Not detected'} />
-              <Metric label="Parsed peaks" value={localReferenceParsePreview.peaks.length} />
-              <Metric label="Parsed rows" value={localReferenceParsePreview.parsedRowCount} />
-              <Metric label="Ignored rows" value={localReferenceParsePreview.ignoredRowCount} />
-              <Metric label="Warnings" value={localReferenceParsePreview.validation.warnings.length} />
-              <Metric label="Errors" value={localReferenceParsePreview.validation.errors.length} />
-            </div>
-            {localReferencePreviewIssueCount > 0 && (
-              <div className="mt-2 rounded border border-amber-200 bg-white/80 px-2 py-1.5">
-                <p className="text-[9px] font-bold uppercase tracking-wide text-amber-900">Key diagnostics</p>
-                <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed">
-                  {localReferencePreviewIssues.slice(0, 3).map((issue) => (
-                    <li
-                      key={`${issue.tone}-${issue.message}`}
-                      className={issue.tone === 'error' ? 'text-red-800' : 'text-amber-900'}
-                    >
-                      - {issue.message}
-                    </li>
-                  ))}
-                </ul>
-                {localReferencePreviewIssueCount > 3 && (
-                  <p className="mt-1 text-[9px] text-text-muted">
-                    {localReferencePreviewIssueCount - 3} more diagnostics in details.
-                  </p>
-                )}
-              </div>
-            )}
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={handleSaveLocalReferencePreview}
-                disabled={!canSaveLocalReferencePreview}
-                className="inline-flex min-h-8 items-center justify-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 text-[10px] font-bold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-border disabled:bg-surface-alt disabled:text-text-muted"
-              >
-                <Save size={12} />
-                Save preview
-              </button>
-              <button
-                type="button"
-                onClick={handleClearLocalReferencePreview}
-                className="inline-flex min-h-8 items-center justify-center gap-1 rounded border border-border bg-background px-2 text-[10px] font-bold text-text-main hover:bg-surface-hover"
-              >
-                <RotateCcw size={12} />
-                Clear preview
-              </button>
-            </div>
-            {localReferenceSaveStatus && (
-              <p className="mt-2 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-text-muted">
-                {localReferenceSaveStatus}
-              </p>
-            )}
-            {localReferenceParsePreview.cifMetadata && (
-              <p className="mt-2 rounded border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[10px] leading-relaxed text-indigo-900">
-                CIF metadata preview detected. Full diffraction simulation is planned; this import is not ready for backend matching unless explicit peak data are available.
-              </p>
-            )}
-            {localReferenceParsePreview.xrdmlMetadata && (
-              <p className="mt-2 rounded border border-cyan-200 bg-cyan-50 px-2 py-1.5 text-[10px] leading-relaxed text-cyan-900">
-                XRDML measured pattern preview detected. A measured pattern is not automatically a validated reference.
-              </p>
-            )}
-            {localReferenceParsePreview.peaks.length > 0 && (
-              <details className="mt-2 rounded border border-blue-100 bg-white/80 px-2 py-1.5">
-                <summary className="cursor-pointer text-[9px] font-bold uppercase tracking-wide text-blue-900">
-                  Peak preview
-                </summary>
-                <div className="mt-2 overflow-hidden rounded border border-blue-100 bg-white">
-                  <table className="w-full text-left text-[9px]">
-                    <thead className="bg-blue-50 text-blue-950">
-                      <tr>
-                        <th className="px-2 py-1 font-bold">2theta</th>
-                        <th className="px-2 py-1 font-bold">Rel. intensity</th>
-                        <th className="px-2 py-1 font-bold">hkl</th>
-                        <th className="px-2 py-1 font-bold">d-spacing</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {localReferenceParsePreview.peaks.slice(0, 5).map((peak, index) => (
-                        <tr key={`${peak.twoTheta}-${index}`} className="border-t border-blue-50 text-text-main">
-                          <td className="px-2 py-1 font-semibold">{formatReferenceMatchNumber(peak.twoTheta, 3)}</td>
-                          <td className="px-2 py-1">{formatReferenceMatchNumber(peak.relativeIntensity, 1)}</td>
-                          <td className="px-2 py-1">{peak.hkl ?? 'Not available'}</td>
-                          <td className="px-2 py-1">{formatReferenceMatchNumber(peak.dSpacing, 4)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {localReferenceParsePreview.peaks.length > 5 && (
-                    <p className="border-t border-blue-50 px-2 py-1 text-[9px] text-text-muted">
-                      Showing first 5 of {localReferenceParsePreview.peaks.length} parsed peaks.
-                    </p>
-                  )}
-                </div>
-              </details>
-            )}
-          </div>
-
-          <div className="rounded border border-slate-200 bg-slate-50 px-2 py-2">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-[9px] font-bold uppercase tracking-wide text-text-muted">2. Validate & 3. Approve</p>
-                <p className="mt-0.5 text-[10px] font-bold text-text-main">Validated local reference peak list</p>
-              </div>
-              <span className="shrink-0 rounded-full border border-border bg-background px-2 py-0.5 text-[9px] font-bold text-text-muted">
-                {localReferenceApprovalStatusLabel}
-              </span>
-            </div>
-            {latestLocalReferenceDraft ? (
-              <>
-                <div className="mt-2 grid grid-cols-2 gap-1">
-                  <Metric label="Saved draft" value={latestLocalReferenceDraft.sourceFileName} />
-                  <Metric label="Saved at" value={formatXrdLocalReferenceTimestamp(latestLocalReferenceDraft.savedAt)} />
-                  <Metric label="Validation level" value={getXrdLocalReferenceValidationLevelLabel(latestLocalReferenceDraft.validationLevel)} />
-                  <Metric label="Import status" value={getXrdLocalReferenceValidationStatusLabel(latestLocalReferenceDraft.validationStatus)} />
-                  <Metric label="Stored peaks" value={latestLocalReferenceDraft.parseResult.peaks.length} />
-                  <Metric label="Eligibility" value={latestLocalReferenceDraftEligible ? 'Parser eligible' : 'Blocked'} />
-                  <Metric
-                    label="Approved at"
-                    value={latestLocalReferenceDraft.approvedAt
-                      ? formatXrdLocalReferenceTimestamp(latestLocalReferenceDraft.approvedAt)
-                      : 'Not approved'}
-                  />
-                  <Metric label="Backend ready" value={latestLocalReferenceDraftApprovedForBackend ? 'Yes' : 'No'} />
-                </div>
-                {latestLocalReferenceDraftBlockers.length > 0 ? (
-                  <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
-                    <p className="text-[9px] font-bold uppercase tracking-wide text-amber-900">Approval gate</p>
-                    <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-amber-900">
-                      {latestLocalReferenceDraftBlockers.slice(0, 4).map((blocker) => (
-                        <li key={blocker}>- {blocker}</li>
-                      ))}
-                    </ul>
-                    {latestLocalReferenceDraftBlockers.length > 4 && (
-                      <p className="mt-1 text-[9px] text-amber-900">
-                        {latestLocalReferenceDraftBlockers.length - 4} more gate checks not shown.
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="mt-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[10px] leading-relaxed text-emerald-800">
-                    This saved draft is approved and can be enabled for a request-scoped backend run.
-                  </p>
-                )}
-                {latestLocalReferenceDraft.approvalNotes && latestLocalReferenceDraft.approvalNotes.length > 0 && (
-                  <details className="mt-2 rounded border border-border bg-background px-2 py-1.5">
-                    <summary className="cursor-pointer text-[9px] font-bold uppercase tracking-wide text-text-muted">
-                      Approval notes
-                    </summary>
-                    <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-text-muted">
-                      {latestLocalReferenceDraft.approvalNotes.slice(0, 5).map((note) => (
-                        <li key={note}>- {note}</li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleApproveLocalReferenceDraft(latestLocalReferenceDraft.id)}
-                    disabled={!latestLocalReferenceDraftEligible || latestLocalReferenceDraft.approvalStatus === 'approved_for_local_matching'}
-                    className="inline-flex min-h-7 items-center justify-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 text-[10px] font-bold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-border disabled:bg-surface-alt disabled:text-text-muted"
-                  >
-                    <CheckCircle2 size={12} />
-                    Approve for local matching
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleRejectLocalReferenceDraft(latestLocalReferenceDraft.id)}
-                    className="inline-flex min-h-7 items-center justify-center gap-1 rounded border border-amber-200 bg-amber-50 px-2 text-[10px] font-bold text-amber-900 hover:bg-amber-100"
-                  >
-                    Keep preview-only
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleDeleteLocalReferenceDraft(latestLocalReferenceDraft.id)}
-                  className="mt-2 inline-flex min-h-7 items-center justify-center gap-1 rounded border border-border bg-background px-2 text-[10px] font-bold text-text-main hover:bg-surface-hover"
-                >
-                  <Trash2 size={12} />
-                  Delete saved draft
-                </button>
-              </>
-            ) : (
-              <p className="mt-2 rounded border border-dashed border-border bg-background px-2 py-1.5 text-[10px] leading-relaxed text-text-muted">
-                Save a parsed local reference preview before approval.
-              </p>
-            )}
-          </div>
-
-          <div className="rounded border border-border bg-background px-2 py-2">
-            <p className="text-[9px] font-bold uppercase tracking-wide text-text-muted">4. Use for backend run</p>
-            <div className="mt-2">
-              <XRDToggleField
-                label="Use saved local reference for this backend run"
-                checked={latestLocalReferenceDraftApprovedForBackend && useLocalReferenceForBackend}
-                disabled={!latestLocalReferenceDraftApprovedForBackend}
-                onChange={(enabled) => onUseLocalReferenceForBackendChange(latestLocalReferenceDraftApprovedForBackend && enabled)}
-              />
-            </div>
-            <p className="mt-2 rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] leading-relaxed text-text-muted">
-              Approve a valid local reference peak list before using it for backend matching.
-            </p>
-            <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] leading-relaxed text-amber-900">
-              Current backend matching uses active curated reference sets unless this approved local-reference toggle is enabled.
-            </p>
-          </div>
-
-          {localReferenceParsePreview.cifMetadata && (
-            <details className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1.5">
-              <summary className="cursor-pointer text-[9px] font-bold uppercase tracking-wide text-indigo-900">
-                CIF metadata preview
-              </summary>
-              <div className="mt-2 grid grid-cols-2 gap-1">
-                <Metric label="Detected format" value="CIF structure file" />
-                <Metric label="Conversion status" value={formatXrdCifConversionMode(localReferenceParsePreview.cifMetadata.conversionMode)} />
-                <Metric label="Structure name" value={localReferenceParsePreview.structureName || 'Not available'} />
-                <Metric label="Formula" value={localReferenceParsePreview.formulaFromCif || 'Not available'} />
-                <Metric label="Space group" value={localReferenceParsePreview.spaceGroup || 'Not available'} />
-                <Metric label="Crystal system" value={localReferenceParsePreview.crystalSystem || 'Not available'} />
-                <Metric label="Cell parameters" value={formatXrdCifCellParameters(localReferenceParsePreview)} />
-                <Metric
-                  label="Atom sites"
-                  value={localReferenceParsePreview.cifMetadata.atomSiteCount !== undefined
-                    ? String(localReferenceParsePreview.cifMetadata.atomSiteCount)
-                    : 'Not available'}
-                />
-              </div>
-              <p className="mt-2 text-[10px] leading-relaxed text-indigo-900">
-                CIF import is reference-source metadata only in this phase. Full structure-to-pattern simulation requires crystallographic validation.
-              </p>
-            </details>
-          )}
-
-          {localReferenceParsePreview.xrdmlMetadata && (
-            <details className="rounded border border-cyan-200 bg-cyan-50 px-2 py-1.5">
-              <summary className="cursor-pointer text-[9px] font-bold uppercase tracking-wide text-cyan-900">
-                XRDML measured pattern preview
-              </summary>
-              <div className="mt-2 grid grid-cols-2 gap-1">
-                <Metric label="Detected format" value="XRDML measured pattern" />
-                <Metric label="Scan axis" value={localReferenceParsePreview.xrdmlMetadata.scanAxis || 'Not available'} />
-                <Metric label="Parsed points" value={localReferenceParsePreview.xrdmlMetadata.parsedPointCount} />
-                <Metric label="2theta range" value={formatXrdmlRange(localReferenceParsePreview)} />
-                <Metric label="Step" value={formatXrdmlStep(localReferenceParsePreview.xrdmlMetadata.commonStep)} />
-                <Metric label="Intensity range" value={formatXrdmlIntensityRange(localReferenceParsePreview)} />
-                <Metric label="Wavelength" value={formatReferenceMatchNumber(localReferenceParsePreview.xrdmlMetadata.wavelengthAngstrom, 5)} />
-                <Metric label="Vendor" value={localReferenceParsePreview.xrdmlMetadata.vendor || 'Not available'} />
-                <Metric label="Instrument" value={localReferenceParsePreview.xrdmlMetadata.instrument || 'Not available'} />
-                <Metric label="Measurement date" value={localReferenceParsePreview.xrdmlMetadata.measurementDate || 'Not available'} />
-              </div>
-              <p className="mt-2 text-[10px] leading-relaxed text-cyan-900">
-                XRDML measured pattern import is preview-only in this phase and is not eligible for backend local reference matching until converted into a validated peak list.
-              </p>
-            </details>
-          )}
-
-          {localReferencePreviewIssueCount > 0 && (
-            <details className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
-              <summary className="cursor-pointer text-[9px] font-bold uppercase tracking-wide text-amber-900">
-                Full import diagnostics
-              </summary>
-              <div className="mt-2 grid grid-cols-1 gap-1">
-                {localReferenceParsePreview.validation.errors.length > 0 && (
-                  <div className="rounded border border-red-200 bg-red-50 px-2 py-1.5">
-                    <p className="text-[9px] font-bold uppercase tracking-wide text-red-800">Errors</p>
-                    <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-red-800">
-                      {localReferenceParsePreview.validation.errors.map((error) => (
-                        <li key={error}>- {error}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {localReferenceParsePreview.validation.warnings.length > 0 && (
-                  <div className="rounded border border-amber-200 bg-white/80 px-2 py-1.5">
-                    <p className="text-[9px] font-bold uppercase tracking-wide text-amber-900">Warnings</p>
-                    <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-amber-900">
-                      {localReferenceParsePreview.validation.warnings.map((warning) => (
-                        <li key={warning}>- {warning}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </details>
-          )}
-
-          <details className="rounded border border-border bg-background px-2 py-1.5">
-            <summary className="cursor-pointer text-[9px] font-bold uppercase tracking-wide text-text-muted">
-              Parser contract preview
-            </summary>
-            <div className="mt-2 space-y-1">
-              {XRD_LOCAL_REFERENCE_EXPECTED_COLUMNS.map((column) => (
-                <div key={column.column} className="rounded border border-border bg-surface-alt px-2 py-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[10px] font-bold text-text-main">{column.column}</span>
-                    <span className="rounded-full border border-border bg-background px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-text-muted">
-                      {column.requirement}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-[9px] leading-relaxed text-text-muted">{column.detail}</p>
-                </div>
-              ))}
-              <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5">
-                <p className="text-[9px] font-bold uppercase tracking-wide text-text-muted">Minimum reference requirements</p>
-                <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-text-muted">
-                  <li>- At least 3 reference peaks recommended.</li>
-                  <li>- Metadata recommended: label, formula or material family, and elements.</li>
-                  <li>- Relative intensity improves preview quality but remains optional.</li>
-                </ul>
-              </div>
-            </div>
-          </details>
-
-          <details className="rounded border border-border bg-background px-2 py-1.5">
-            <summary className="cursor-pointer text-[9px] font-bold uppercase tracking-wide text-text-muted">
-              Validation status glossary
-            </summary>
-            <div className="mt-2 space-y-1">
-              {XRD_LOCAL_REFERENCE_STATUS_PREVIEW.map((status) => (
-                <div key={status.label} className="rounded border border-border bg-surface-alt px-2 py-1">
-                  <p className="text-[10px] font-semibold text-text-main">{status.label}</p>
-                  <p className="text-[9px] leading-relaxed text-text-muted">{status.detail}</p>
-                </div>
-              ))}
-            </div>
-          </details>
-
-          <details className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
-            <summary className="cursor-pointer text-[9px] font-bold uppercase tracking-wide text-amber-900">
-              Boundary notes
-            </summary>
-            <ul className="mt-2 space-y-0.5 text-[10px] leading-relaxed text-amber-900">
-              <li>Saved local references are used for backend matching only when explicitly approved, enabled, and eligible.</li>
-              <li>Approval only allows request-scoped local reference matching.</li>
-              <li>Approval does not confirm chemical identity.</li>
-              <li>Approval does not confirm phase purity.</li>
-              <li>Local reference provenance remains user/lab responsibility.</li>
-              <li>Unsupported, corrupted, or converter-required imports are not sent to backend matching.</li>
-              <li>Current backend matching uses active curated reference sets unless the saved local-reference toggle is enabled.</li>
-              <li>CIF import is reference-source metadata only in this phase.</li>
-              <li>XRDML measured pattern import is preview-only in this phase.</li>
-              <li>A measured pattern is not automatically a validated reference.</li>
-              <li>Full structure-to-pattern simulation requires crystallographic validation.</li>
-              <li>Previewed/saved reference peaks are not chemical identity confirmation.</li>
-              <li>Phase purity is not confirmed.</li>
-            </ul>
-          </details>
-
-          <details className="rounded border border-border bg-background px-2 py-1.5">
-            <summary className="cursor-pointer text-[9px] font-bold uppercase tracking-wide text-text-muted">
-              Planned local reference entries
-            </summary>
-            <div className="mt-2 space-y-1">
-              {PLANNED_XRD_LOCAL_REFERENCES.map((localRef) => (
-                <div key={localRef.id} className="rounded border border-border bg-surface-alt px-2 py-1.5">
-                  <p className="text-[10px] font-semibold text-text-main">{localRef.label}</p>
-                  <p className="text-[9px] text-text-muted">Status: {localRef.validationStatus}</p>
-                  <p className="text-[9px] text-text-muted">Backend available: {localRef.backendAvailable ? 'Yes' : 'No'}</p>
-                  {localRef.notes.length > 0 && (
-                    <ul className="mt-1 space-y-0.5 text-[9px] leading-relaxed text-text-muted">
-                      {localRef.notes.map((note, idx) => (
-                        <li key={idx}>- {note}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ))}
-            </div>
-          </details>
-        </div>
-      </Panel>
+      <XRDLocalReferencePanel
+        parsePreview={localReferenceParsePreview}
+        validationLevel={localReferenceValidationLevel}
+        validationLevelLabel={getXrdLocalReferenceValidationLevelLabel(localReferenceValidationLevel)}
+        canSavePreview={canSaveLocalReferencePreview}
+        saveStatus={localReferenceSaveStatus}
+        previewIssueCount={localReferencePreviewIssueCount}
+        previewIssues={localReferencePreviewIssues}
+        savedDrafts={localReferenceDrafts}
+        latestDraft={latestLocalReferenceDraft}
+        latestDraftEligible={latestLocalReferenceDraftEligible}
+        latestDraftApprovedForBackend={latestLocalReferenceDraftApprovedForBackend}
+        latestDraftBlockers={latestLocalReferenceDraftBlockers}
+        approvalStatusLabel={localReferenceApprovalStatusLabel}
+        backendUseStatusLabel={localReferenceBackendUseStatus}
+        useLocalReferenceForBackend={useLocalReferenceForBackend}
+        curatedReferenceSetId={parameters.referenceMatch.referenceSetId}
+        plannedLocalReferences={PLANNED_XRD_LOCAL_REFERENCES}
+        previewSupportedFormats={XRD_LOCAL_REFERENCE_PREVIEW_SUPPORTED_FORMATS}
+        selectableFormats={XRD_LOCAL_REFERENCE_SELECTABLE_FORMATS}
+        expectedColumns={XRD_LOCAL_REFERENCE_EXPECTED_COLUMNS}
+        statusPreview={XRD_LOCAL_REFERENCE_STATUS_PREVIEW}
+        onFileChange={handleLocalReferenceFileChange}
+        onSavePreview={handleSaveLocalReferencePreview}
+        onClearPreview={handleClearLocalReferencePreview}
+        onDeleteDraft={handleDeleteLocalReferenceDraft}
+        onApproveDraft={handleApproveLocalReferenceDraft}
+        onRejectDraft={handleRejectLocalReferenceDraft}
+        onToggleUseForBackend={onUseLocalReferenceForBackendChange}
+        formatFileKind={formatXrdReferenceFileKind}
+        formatTimestamp={formatXrdLocalReferenceTimestamp}
+        formatNumber={formatReferenceMatchNumber}
+        formatCifConversionMode={formatXrdCifConversionMode}
+        formatCifCellParameters={formatXrdCifCellParameters}
+        formatXrdmlRange={formatXrdmlRange}
+        formatXrdmlStep={formatXrdmlStep}
+        formatXrdmlIntensityRange={formatXrdmlIntensityRange}
+        getValidationStatusLabel={getXrdLocalReferenceValidationStatusLabel}
+      />
 
       <XRDBoundaryPanel
         enabled={parameters.boundary.enabled}
