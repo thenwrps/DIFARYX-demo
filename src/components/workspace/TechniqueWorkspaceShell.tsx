@@ -111,13 +111,18 @@ import {
   parseXrdLocalReferenceText,
 } from '../../utils/xrdLocalReferenceParser';
 import {
+  approveXrdLocalReferenceDraftForMatching,
   buildXrdLocalReferenceDraftFromParseResult,
   buildXrdLocalReferencePayloadFromDraft,
+  canUseXrdLocalReferenceDraftForBackendMatching,
   deleteXrdLocalReferenceDraft,
+  getXrdLocalReferenceApprovalStatusLabel,
+  getXrdLocalReferenceDraftMatchingBlockers,
   getXrdLocalReferenceValidationLevel,
   getXrdLocalReferenceValidationLevelLabel,
   isXrdLocalReferenceDraftEligibleForBackend,
   listXrdLocalReferenceDrafts,
+  rejectXrdLocalReferenceDraft,
   saveXrdLocalReferenceDraft,
   type XRDStoredLocalReferenceRecord,
 } from '../../data/xrdLocalReferences';
@@ -1251,10 +1256,12 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
       signalSource.uploadedRunId ?? routeContext.uploadedRunId ?? quickAnalysisSession?.uploadedRunId ?? undefined,
     )[0];
     if (!latestDraft) return undefined;
-    if (!isXrdLocalReferenceDraftEligibleForBackend(latestDraft)) {
+    if (!canUseXrdLocalReferenceDraftForBackendMatching(latestDraft)) {
       debugXrdReprocessTrace('local reference draft blocked from backend payload', {
         sourceFileName: latestDraft.sourceFileName,
         validationStatus: latestDraft.validationStatus,
+        approvalStatus: latestDraft.approvalStatus,
+        userApprovedForMatching: latestDraft.userApprovedForMatching,
         isEligibleForBackendMatching: latestDraft.parseResult.isEligibleForBackendMatching,
       });
       return undefined;
@@ -3094,6 +3101,8 @@ function XRDParametersPanel({
     || hasSavableXrdmlPreview;
   const latestLocalReferenceDraft = localReferenceDrafts[0] ?? null;
   const latestLocalReferenceDraftEligible = isXrdLocalReferenceDraftEligibleForBackend(latestLocalReferenceDraft);
+  const latestLocalReferenceDraftApprovedForBackend = canUseXrdLocalReferenceDraftForBackendMatching(latestLocalReferenceDraft);
+  const latestLocalReferenceDraftBlockers = getXrdLocalReferenceDraftMatchingBlockers(latestLocalReferenceDraft);
 
   useEffect(() => {
     setLocalReferenceDrafts(getXrdLocalReferenceDraftsForContext(projectId, uploadedRunId));
@@ -3200,6 +3209,27 @@ function XRDParametersPanel({
     }
     setLocalReferenceSaveStatus(deleted
       ? 'Saved local reference preview deleted.'
+      : 'Saved local reference preview was not found.');
+  }
+
+  function handleApproveLocalReferenceDraft(draftId: string) {
+    const approved = approveXrdLocalReferenceDraftForMatching(draftId);
+    refreshLocalReferenceDrafts();
+    if (approved?.approvalStatus === 'approved_for_local_matching') {
+      setLocalReferenceSaveStatus('Local reference peak list approved for request-scoped backend matching. Toggle remains off until explicitly enabled.');
+      return;
+    }
+
+    onUseLocalReferenceForBackendChange(false);
+    setLocalReferenceSaveStatus('Local reference draft could not be approved for matching. It remains preview-only.');
+  }
+
+  function handleRejectLocalReferenceDraft(draftId: string) {
+    const rejected = rejectXrdLocalReferenceDraft(draftId);
+    refreshLocalReferenceDrafts();
+    onUseLocalReferenceForBackendChange(false);
+    setLocalReferenceSaveStatus(rejected
+      ? 'Local reference draft rejected for backend matching and kept as preview-only.'
       : 'Saved local reference preview was not found.');
   }
 
@@ -3629,7 +3659,7 @@ function XRDParametersPanel({
             <Metric label="Parsed peaks" value={localReferenceParsePreview.peaks.length} />
             <Metric
               label="Backend eligible"
-              value={localReferenceParsePreview.isEligibleForBackendMatching ? 'Yes, after saving and explicit opt-in' : 'No'}
+              value={localReferenceParsePreview.isEligibleForBackendMatching ? 'Parser eligible; save and approve before use' : 'No'}
             />
           </div>
           <div className="mt-2 grid grid-cols-2 gap-2">
@@ -3794,16 +3824,44 @@ function XRDParametersPanel({
               <div className="mt-2 grid grid-cols-2 gap-1">
                 <Metric label="Parse status" value={getXrdLocalReferenceValidationStatusLabel(latestLocalReferenceDraft.validationStatus)} />
                 <Metric label="File kind" value={formatXrdReferenceFileKind(latestLocalReferenceDraft.parseResult.fileKind)} />
+                <Metric label="Approval status" value={getXrdLocalReferenceApprovalStatusLabel(latestLocalReferenceDraft.approvalStatus)} />
+                <Metric
+                  label="Approved at"
+                  value={latestLocalReferenceDraft.approvedAt
+                    ? formatXrdLocalReferenceTimestamp(latestLocalReferenceDraft.approvedAt)
+                    : 'Not approved'}
+                />
                 <Metric label="Stored peaks" value={latestLocalReferenceDraft.parseResult.peaks.length} />
                 <Metric label="Parsed rows" value={latestLocalReferenceDraft.parseResult.parsedRowCount} />
                 <Metric label="Ignored rows" value={latestLocalReferenceDraft.parseResult.ignoredRowCount} />
-                <Metric label="Backend eligible" value={latestLocalReferenceDraftEligible ? 'Yes, explicit opt-in required' : 'No'} />
-                <Metric label="Used for matching" value={useLocalReferenceForBackend && latestLocalReferenceDraftEligible ? 'Enabled for next run' : 'No'} />
+                <Metric label="Import eligible" value={latestLocalReferenceDraftEligible ? 'Yes, approval required' : 'No'} />
+                <Metric label="Backend matching ready" value={latestLocalReferenceDraftApprovedForBackend ? 'Yes, explicit toggle required' : 'No'} />
+                <Metric label="Used for matching" value={useLocalReferenceForBackend && latestLocalReferenceDraftApprovedForBackend ? 'Enabled for next run' : 'No'} />
               </div>
-              {!latestLocalReferenceDraftEligible && (
+              {!latestLocalReferenceDraftApprovedForBackend && (
                 <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] leading-relaxed text-amber-900">
-                  This saved draft is review-only because it is not eligible for backend matching.
+                  Approve a valid local reference peak list before using it for backend matching.
                 </p>
+              )}
+              {latestLocalReferenceDraftBlockers.length > 0 && (
+                <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
+                  <p className="text-[9px] font-bold uppercase tracking-wide text-amber-900">Matching gate</p>
+                  <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-amber-900">
+                    {latestLocalReferenceDraftBlockers.slice(0, 5).map((blocker) => (
+                      <li key={blocker}>- {blocker}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {latestLocalReferenceDraft.approvalNotes && latestLocalReferenceDraft.approvalNotes.length > 0 && (
+                <div className="mt-2 rounded border border-slate-200 bg-white px-2 py-1.5">
+                  <p className="text-[9px] font-bold uppercase tracking-wide text-text-muted">Approval notes</p>
+                  <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-text-muted">
+                    {latestLocalReferenceDraft.approvalNotes.slice(0, 3).map((note) => (
+                      <li key={note}>- {note}</li>
+                    ))}
+                  </ul>
+                </div>
               )}
               {latestLocalReferenceDraft.parseResult.cifMetadata && (
                 <div className="mt-2 rounded border border-indigo-200 bg-indigo-50 px-2 py-1.5">
@@ -3827,6 +3885,24 @@ function XRDParametersPanel({
                   </div>
                 </div>
               )}
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleApproveLocalReferenceDraft(latestLocalReferenceDraft.id)}
+                  disabled={!latestLocalReferenceDraftEligible || latestLocalReferenceDraft.approvalStatus === 'approved_for_local_matching'}
+                  className="inline-flex min-h-7 items-center justify-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 text-[10px] font-bold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-border disabled:bg-surface-alt disabled:text-text-muted"
+                >
+                  <CheckCircle2 size={12} />
+                  Approve for local matching
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleRejectLocalReferenceDraft(latestLocalReferenceDraft.id)}
+                  className="inline-flex min-h-7 items-center justify-center gap-1 rounded border border-amber-200 bg-amber-50 px-2 text-[10px] font-bold text-amber-900 hover:bg-amber-100"
+                >
+                  Keep preview-only
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={() => handleDeleteLocalReferenceDraft(latestLocalReferenceDraft.id)}
@@ -3844,11 +3920,16 @@ function XRDParametersPanel({
           <div className="mt-2">
             <XRDToggleField
               label="Use saved local reference for this backend run"
-              checked={latestLocalReferenceDraftEligible && useLocalReferenceForBackend}
-              disabled={!latestLocalReferenceDraftEligible}
-              onChange={(enabled) => onUseLocalReferenceForBackendChange(latestLocalReferenceDraftEligible && enabled)}
+              checked={latestLocalReferenceDraftApprovedForBackend && useLocalReferenceForBackend}
+              disabled={!latestLocalReferenceDraftApprovedForBackend}
+              onChange={(enabled) => onUseLocalReferenceForBackendChange(latestLocalReferenceDraftApprovedForBackend && enabled)}
             />
           </div>
+          {!latestLocalReferenceDraftApprovedForBackend && (
+            <p className="mt-2 rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] leading-relaxed text-text-muted">
+              Approve a valid local reference peak list before using it for backend matching.
+            </p>
+          )}
           <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] leading-relaxed text-amber-900">
             Local reference matching is experimental and request-scoped. It does not confirm identity or phase purity.
           </p>
@@ -3894,7 +3975,11 @@ function XRDParametersPanel({
         <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
           <p className="text-[9px] font-bold uppercase tracking-wide text-amber-900">Boundary</p>
           <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-amber-900">
-            <li>Saved local references are used for backend matching only when explicitly enabled and eligible.</li>
+            <li>Saved local references are used for backend matching only when explicitly approved, enabled, and eligible.</li>
+            <li>Approval only allows request-scoped local reference matching.</li>
+            <li>Approval does not confirm chemical identity.</li>
+            <li>Approval does not confirm phase purity.</li>
+            <li>Local reference provenance remains user/lab responsibility.</li>
             <li>Unsupported, corrupted, or converter-required imports are not sent to backend matching.</li>
             <li>Current backend matching uses active curated reference sets unless the saved local-reference toggle is enabled.</li>
             <li>CIF import is reference-source metadata only in this phase.</li>

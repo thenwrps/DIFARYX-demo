@@ -13,6 +13,12 @@ export type XRDLocalReferenceValidationStatus =
   | "validated_for_project"
   | "not_supported_yet";
 
+export type XRDLocalReferenceApprovalStatus =
+  | "not_reviewed"
+  | "preview_only"
+  | "approved_for_local_matching"
+  | "rejected";
+
 export type XRDReferenceImportStatus =
   | "not_uploaded"
   | "detected"

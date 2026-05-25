@@ -1,4 +1,5 @@
 import type {
+  XRDLocalReferenceApprovalStatus,
   XRDLocalReferenceParseResult,
   XRDLocalReferenceParseStatus,
   XRDLocalReferencePeak,
@@ -7,6 +8,7 @@ import type {
   XRDReferenceImportDiagnostics,
   XRDReferenceTextBinaryLikelihood,
 } from '../types/xrdLocalReference';
+import { getXrdLocalReferenceValidationStatusLabel } from '../types/xrdLocalReference';
 import type { XRDLocalReferencePayload } from '../types/xrdBackend';
 
 export const XRD_LOCAL_REFERENCES_STORAGE_KEY = 'difaryx.xrdLocalReferences.v1';
@@ -31,6 +33,10 @@ export interface XRDStoredLocalReferenceRecord {
   parseResult: XRDLocalReferenceParseResult;
   validationStatus: XRDLocalReferenceParseStatus;
   validationLevel: XRDLocalReferenceValidationLevel;
+  approvalStatus: XRDLocalReferenceApprovalStatus;
+  userApprovedForMatching: boolean;
+  approvedAt?: string;
+  approvalNotes?: string[];
   backendAvailable: false;
   usedForMatching: false;
 }
@@ -162,8 +168,13 @@ function compactParseResult(parseResult: XRDLocalReferenceParseResult): XRDLocal
   };
 }
 
+function getDefaultApprovalStatus(record: Partial<XRDStoredLocalReferenceRecord>): XRDLocalReferenceApprovalStatus {
+  return record.approvalStatus ?? 'not_reviewed';
+}
+
 function compactRecord(record: XRDStoredLocalReferenceRecord): XRDStoredLocalReferenceRecord {
   const parseResult = compactParseResult(record.parseResult);
+  const approvalStatus = getDefaultApprovalStatus(record);
 
   return {
     id: record.id,
@@ -177,6 +188,10 @@ function compactRecord(record: XRDStoredLocalReferenceRecord): XRDStoredLocalRef
     parseResult,
     validationStatus: parseResult.status,
     validationLevel: getXrdLocalReferenceValidationLevel(parseResult),
+    approvalStatus,
+    userApprovedForMatching: approvalStatus === 'approved_for_local_matching' && record.userApprovedForMatching === true,
+    ...(record.approvedAt ? { approvedAt: record.approvedAt } : {}),
+    ...(record.approvalNotes ? { approvalNotes: compactMessages(record.approvalNotes) } : {}),
     backendAvailable: false,
     usedForMatching: false,
   };
@@ -299,6 +314,11 @@ export function buildXrdLocalReferenceDraftFromParseResult(
     parseResult: compactedParseResult,
     validationStatus: compactedParseResult.status,
     validationLevel: getXrdLocalReferenceValidationLevel(compactedParseResult),
+    approvalStatus: 'not_reviewed',
+    userApprovedForMatching: false,
+    approvalNotes: [
+      'Saved local reference preview has not been approved for request-scoped backend matching.',
+    ],
     backendAvailable: false,
     usedForMatching: false,
   };
@@ -340,6 +360,147 @@ export function isXrdLocalReferenceDraftEligibleForBackend(
   draft: XRDStoredLocalReferenceRecord | null | undefined,
 ): boolean {
   return Boolean(draft?.parseResult.isEligibleForBackendMatching);
+}
+
+const BLOCKED_MATCHING_STATUSES: XRDLocalReferenceParseStatus[] = [
+  'corrupted_file',
+  'parse_error',
+  'requires_converter',
+  'requires_peak_extraction',
+  'unsupported_format',
+  'not_supported_yet',
+];
+
+export function getXrdLocalReferenceApprovalStatusLabel(status: XRDLocalReferenceApprovalStatus): string {
+  switch (status) {
+    case 'approved_for_local_matching':
+      return 'Approved for local matching';
+    case 'preview_only':
+      return 'Preview only';
+    case 'rejected':
+      return 'Rejected';
+    case 'not_reviewed':
+    default:
+      return 'Not reviewed';
+  }
+}
+
+export function getXrdLocalReferenceDraftMatchingBlockers(
+  draft: XRDStoredLocalReferenceRecord | null | undefined,
+): string[] {
+  if (!draft) return ['No saved local reference draft is available.'];
+
+  const blockers: string[] = [];
+  const { parseResult } = draft;
+  const validPeakCount = parseResult.peaks.filter((peak) => Number.isFinite(peak.twoTheta)).length;
+
+  if (parseResult.validation.errors.length > 0) {
+    blockers.push('Critical parse errors are present.');
+  }
+  if (!parseResult.validation.hasTwoTheta) {
+    blockers.push('Missing parsable 2theta values.');
+  }
+  if (validPeakCount < 3) {
+    blockers.push('At least 3 valid reference peaks are required.');
+  }
+  if (!parseResult.isEligibleForBackendMatching) {
+    blockers.push('Parser/import eligibility is false.');
+  }
+  if (BLOCKED_MATCHING_STATUSES.includes(parseResult.status)) {
+    blockers.push(`Import status is ${getXrdLocalReferenceValidationStatusLabel(parseResult.status)}.`);
+  }
+  if (parseResult.usedForMatching !== false) {
+    blockers.push('Imported preview has already been marked as used for matching.');
+  }
+  if (draft.approvalStatus !== 'approved_for_local_matching' || draft.userApprovedForMatching !== true) {
+    blockers.push('User approval for local matching is required.');
+  }
+
+  return Array.from(new Set(blockers));
+}
+
+function hasParserEligibleLocalReferencePeaks(draft: XRDStoredLocalReferenceRecord): boolean {
+  const { parseResult } = draft;
+  const validPeakCount = parseResult.peaks.filter((peak) => Number.isFinite(peak.twoTheta)).length;
+  return Boolean(
+    parseResult.isEligibleForBackendMatching
+      && parseResult.validation.hasTwoTheta
+      && parseResult.validation.errors.length === 0
+      && validPeakCount >= 3
+      && parseResult.usedForMatching === false
+      && !BLOCKED_MATCHING_STATUSES.includes(parseResult.status),
+  );
+}
+
+export function canUseXrdLocalReferenceDraftForBackendMatching(
+  draft: XRDStoredLocalReferenceRecord | null | undefined,
+): boolean {
+  if (!draft) return false;
+  return hasParserEligibleLocalReferencePeaks(draft)
+    && draft.approvalStatus === 'approved_for_local_matching'
+    && draft.userApprovedForMatching === true;
+}
+
+function updateXrdLocalReferenceDraft(
+  id: string,
+  updater: (record: XRDStoredLocalReferenceRecord) => XRDStoredLocalReferenceRecord,
+): XRDStoredLocalReferenceRecord | null {
+  const existing = readAll();
+  const target = existing.find((record) => record.id === id);
+  if (!target) return null;
+
+  const updated = compactRecord(updater(target));
+  const next = existing.map((record) => (record.id === id ? updated : record));
+  return writeAll(next) ? updated : null;
+}
+
+export function approveXrdLocalReferenceDraftForMatching(
+  id: string,
+): XRDStoredLocalReferenceRecord | null {
+  return updateXrdLocalReferenceDraft(id, (record) => {
+    if (!hasParserEligibleLocalReferencePeaks(record)) {
+      return {
+        ...record,
+        approvalStatus: 'preview_only',
+        userApprovedForMatching: false,
+        approvalNotes: [
+          ...getXrdLocalReferenceDraftMatchingBlockers({
+            ...record,
+            approvalStatus: 'approved_for_local_matching',
+            userApprovedForMatching: true,
+          }),
+          'Approval was blocked because this draft is not a valid local reference peak list.',
+        ],
+      };
+    }
+
+    return {
+      ...record,
+      approvalStatus: 'approved_for_local_matching',
+      userApprovedForMatching: true,
+      approvedAt: new Date().toISOString(),
+      approvalNotes: [
+        'User approved this parsed local reference peak list for request-scoped backend matching.',
+        'Approval does not confirm chemical identity or phase purity.',
+        'Local reference provenance remains user/lab responsibility.',
+      ],
+    };
+  });
+}
+
+export function rejectXrdLocalReferenceDraft(
+  id: string,
+): XRDStoredLocalReferenceRecord | null {
+  return updateXrdLocalReferenceDraft(id, (record) => ({
+    ...record,
+    approvalStatus: 'rejected',
+    userApprovedForMatching: false,
+    approvedAt: undefined,
+    approvalNotes: [
+      'User rejected this local reference draft for backend matching.',
+      'Draft remains available as preview/diagnostic information only.',
+    ],
+  }));
 }
 
 export function buildXrdLocalReferencePayloadFromDraft(
