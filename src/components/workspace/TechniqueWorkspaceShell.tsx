@@ -129,6 +129,7 @@ import {
 import { XRDReadinessPanel } from './xrd/XRDReadinessPanel';
 import { XRDBoundaryPanel } from './xrd/XRDBoundaryPanel';
 import { XRDLocalReferencePanel } from './xrd/XRDLocalReferencePanel';
+import { XRDReferenceMatchPanel } from './xrd/XRDReferenceMatchPanel';
 import { saveXrdBackendEvidenceResult } from '../../data/xrdBackendEvidence';
 import { runRamanProcessing } from '../../agents/ramanAgent/runner';
 import { getRamanProcessingParams, getRamanParameterSnapshot } from '../../utils/ramanParameterAdapter';
@@ -3486,106 +3487,36 @@ function XRDParametersPanel({
         </div>
       </Panel>
 
-      <Panel title="Reference Candidate Match" icon={<FileText size={13} />}>
-        <div className="space-y-1.5">
-          <XRDStatusText tone={parameters.referenceMatch.referenceSetId ? 'neutral' : 'warning'}>
-            Reference matching requires a selected reference set.
-          </XRDStatusText>
-          <XRDStatusText tone="info">XRD reference matching is candidate evidence only.</XRDStatusText>
-        </div>
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <div className="col-span-2">
-            <XRDToggleField
-              label="Reference match"
-              checked={parameters.referenceMatch.enabled}
-              onChange={(enabled) => updateParameterStage('referenceMatch', { enabled })}
-            />
-          </div>
-          <div className="col-span-2">
-            <XRDSelectField
-              label="Match mode"
-              value={parameters.referenceMatch.matchMode}
-              options={XRD_MATCH_MODE_OPTIONS}
-              onChange={(matchMode) => updateParameterStage('referenceMatch', { matchMode })}
-            />
-          </div>
-          <XRDSelectField
-            label="Reference source"
-            value={parameters.referenceMatch.referenceSource}
-            options={XRD_REFERENCE_SOURCE_OPTIONS}
-            onChange={updateReferenceSource}
-          />
-          <XRDTextField
-            label="Reference set id"
-            value={parameters.referenceMatch.referenceSetId ?? ''}
-            onChange={updateReferenceSetId}
-            placeholder="Reference set id"
-          />
-          <div className="col-span-2">
-            <XRDTextField
-              label="Candidate phase ids"
-              value={parameters.referenceMatch.candidatePhaseIds.join(', ')}
-              onChange={updateCandidatePhaseIds}
-              placeholder="e.g. cofe2o4_icsd_15342, sba15_amorphous_reference"
-            />
-          </div>
-          <XRDNumberField
-            label="2theta tolerance"
-            value={parameters.referenceMatch.toleranceTwoTheta}
-            min={0}
-            step={0.1}
-            unit="deg"
-            onChange={(toleranceTwoTheta) => updateParameterStage('referenceMatch', { toleranceTwoTheta })}
-          />
-          <XRDNumberField
-            label="Min matched peaks"
-            value={parameters.referenceMatch.minMatchedPeaks}
-            min={0}
-            step={1}
-            onChange={(minMatchedPeaks) => updateParameterStage('referenceMatch', { minMatchedPeaks })}
-          />
-          <XRDNumberField
-            label="Min coverage ratio"
-            value={parameters.referenceMatch.minCoverageRatio}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={(minCoverageRatio) => updateParameterStage('referenceMatch', { minCoverageRatio })}
-          />
-          <XRDNumberField
-            label="Min score"
-            value={parameters.referenceMatch.minScore}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={(minScore) => updateParameterStage('referenceMatch', { minScore })}
-          />
-          <div className="col-span-2">
-            <XRDToggleField
-              label="Use relative intensity"
-              checked={parameters.referenceMatch.useRelativeIntensity}
-              onChange={(useRelativeIntensity) => updateParameterStage('referenceMatch', { useRelativeIntensity })}
-            />
-          </div>
-          <XRDNumberField
-            label="Intensity tolerance"
-            value={parameters.referenceMatch.intensityToleranceRatio}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={(intensityToleranceRatio) => updateParameterStage('referenceMatch', { intensityToleranceRatio })}
-          />
-          <XRDToggleField
-            label="Allow unknown search"
-            checked={parameters.referenceMatch.allowUnknownSearch}
-            onChange={(allowUnknownSearch) => updateParameterStage('referenceMatch', { allowUnknownSearch })}
-          />
-        </div>
-        <div className="mt-2 space-y-1">
-          <Metric label="Identity claim" value={parameters.referenceMatch.allowIdentityClaim ? 'Enabled' : 'Blocked'} />
-          <Metric label="Phase purity claim" value={parameters.referenceMatch.allowPhasePurityClaim ? 'Enabled' : 'Blocked'} />
-        </div>
-      </Panel>
+      <XRDReferenceMatchPanel
+        enabled={parameters.referenceMatch.enabled}
+        matchMode={parameters.referenceMatch.matchMode}
+        referenceSource={parameters.referenceMatch.referenceSource}
+        referenceSetId={parameters.referenceMatch.referenceSetId}
+        candidatePhaseIds={parameters.referenceMatch.candidatePhaseIds}
+        toleranceTwoTheta={parameters.referenceMatch.toleranceTwoTheta}
+        minMatchedPeaks={parameters.referenceMatch.minMatchedPeaks}
+        minCoverageRatio={parameters.referenceMatch.minCoverageRatio}
+        minScore={parameters.referenceMatch.minScore}
+        useRelativeIntensity={parameters.referenceMatch.useRelativeIntensity}
+        intensityToleranceRatio={parameters.referenceMatch.intensityToleranceRatio}
+        allowUnknownSearch={parameters.referenceMatch.allowUnknownSearch}
+        allowIdentityClaim={parameters.referenceMatch.allowIdentityClaim}
+        allowPhasePurityClaim={parameters.referenceMatch.allowPhasePurityClaim}
+        matchModeOptions={XRD_MATCH_MODE_OPTIONS}
+        referenceSourceOptions={XRD_REFERENCE_SOURCE_OPTIONS}
+        onEnabledChange={(enabled) => updateParameterStage('referenceMatch', { enabled })}
+        onMatchModeChange={(matchMode) => updateParameterStage('referenceMatch', { matchMode })}
+        onReferenceSourceChange={updateReferenceSource}
+        onReferenceSetIdChange={updateReferenceSetId}
+        onCandidatePhaseIdsChange={updateCandidatePhaseIds}
+        onToleranceTwoThetaChange={(toleranceTwoTheta) => updateParameterStage('referenceMatch', { toleranceTwoTheta })}
+        onMinMatchedPeaksChange={(minMatchedPeaks) => updateParameterStage('referenceMatch', { minMatchedPeaks })}
+        onMinCoverageRatioChange={(minCoverageRatio) => updateParameterStage('referenceMatch', { minCoverageRatio })}
+        onMinScoreChange={(minScore) => updateParameterStage('referenceMatch', { minScore })}
+        onUseRelativeIntensityChange={(useRelativeIntensity) => updateParameterStage('referenceMatch', { useRelativeIntensity })}
+        onIntensityToleranceRatioChange={(intensityToleranceRatio) => updateParameterStage('referenceMatch', { intensityToleranceRatio })}
+        onAllowUnknownSearchChange={(allowUnknownSearch) => updateParameterStage('referenceMatch', { allowUnknownSearch })}
+      />
 
       <XRDLocalReferencePanel
         parsePreview={localReferenceParsePreview}
