@@ -130,6 +130,7 @@ import { XRDReadinessPanel } from './xrd/XRDReadinessPanel';
 import { XRDBoundaryPanel } from './xrd/XRDBoundaryPanel';
 import { XRDLocalReferencePanel } from './xrd/XRDLocalReferencePanel';
 import { XRDReferenceMatchPanel } from './xrd/XRDReferenceMatchPanel';
+import { XRDProcessingParametersPanel } from './xrd/XRDProcessingParametersPanel';
 import { saveXrdBackendEvidenceResult } from '../../data/xrdBackendEvidence';
 import { runRamanProcessing } from '../../agents/ramanAgent/runner';
 import { getRamanProcessingParams, getRamanParameterSnapshot } from '../../utils/ramanParameterAdapter';
@@ -3329,163 +3330,23 @@ function XRDParametersPanel({
         tone={readiness.tone}
       />
 
-      <Panel title="Range & Radiation" icon={<FlaskConical size={13} />}>
-        <div className="grid grid-cols-2 gap-2">
-          <XRDNumberField
-            label="2theta min"
-            value={parameters.range.twoThetaMin}
-            min={0}
-            max={180}
-            step={0.1}
-            unit="deg"
-            onChange={(twoThetaMin) => updateParameterStage('range', { twoThetaMin })}
-          />
-          <XRDNumberField
-            label="2theta max"
-            value={parameters.range.twoThetaMax}
-            min={0}
-            max={180}
-            step={0.1}
-            unit="deg"
-            onChange={(twoThetaMax) => updateParameterStage('range', { twoThetaMax })}
-          />
-          <XRDReadOnlyField label="Radiation source" value={getXrdRadiationSourceLabel(parameters.radiation.source)} />
-          <XRDNumberField
-            label="Wavelength"
-            value={parameters.radiation.wavelengthAngstrom}
-            min={0}
-            step={0.0001}
-            unit="angstrom"
-            onChange={(wavelengthAngstrom) => updateParameterStage('radiation', { wavelengthAngstrom })}
-          />
-        </div>
-      </Panel>
-
-      <Panel title="Baseline" icon={<GitBranch size={13} />}>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="col-span-2">
-            <XRDSelectField
-              label="Method"
-              value={parameters.baseline.method}
-              options={XRD_BASELINE_METHOD_OPTIONS}
-              onChange={(method) => updateParameterStage('baseline', { method })}
-            />
-          </div>
-          <XRDNumberField
-            label="Lambda"
-            value={parameters.baseline.lambda}
-            min={0}
-            step={1000}
-            onChange={(lambda) => updateParameterStage('baseline', { lambda })}
-          />
-          <XRDNumberField
-            label="p"
-            value={parameters.baseline.p}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={(p) => updateParameterStage('baseline', { p })}
-          />
-        </div>
-      </Panel>
-
-      <Panel title="Smoothing" icon={<GitBranch size={13} />}>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="col-span-2">
-            <XRDSelectField
-              label="Method"
-              value={parameters.smoothing.method}
-              options={XRD_SMOOTHING_METHOD_OPTIONS}
-              onChange={(method) => updateParameterStage('smoothing', { method })}
-            />
-          </div>
-          <XRDNumberField
-            label="Window size"
-            value={parameters.smoothing.windowSize}
-            min={1}
-            step={2}
-            onChange={(windowSize) => updateParameterStage('smoothing', { windowSize })}
-          />
-          <XRDNumberField
-            label="Polynomial order"
-            value={parameters.smoothing.polynomialOrder}
-            min={0}
-            step={1}
-            onChange={(polynomialOrder) => updateParameterStage('smoothing', { polynomialOrder })}
-          />
-        </div>
-      </Panel>
-
-      <Panel title="Peak Detection" icon={<Search size={13} />}>
-        <div className="grid grid-cols-2 gap-2">
-          <XRDNumberField
-            label="Min prominence"
-            value={parameters.peakDetection.minProminence}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={(minProminence) => updateParameterStage('peakDetection', { minProminence })}
-          />
-          <XRDNumberField
-            label="Min distance"
-            value={parameters.peakDetection.minDistanceDeg}
-            min={0}
-            step={0.01}
-            unit="deg"
-            onChange={(minDistanceDeg) => updateParameterStage('peakDetection', { minDistanceDeg })}
-          />
-          <XRDNumberField
-            label="Min height ratio"
-            value={parameters.peakDetection.minHeightRatio}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={(minHeightRatio) => updateParameterStage('peakDetection', { minHeightRatio })}
-          />
-          <XRDNumberField
-            label="Max peak count"
-            value={parameters.peakDetection.maxPeakCount}
-            min={1}
-            step={1}
-            onChange={(maxPeakCount) => updateParameterStage('peakDetection', { maxPeakCount })}
-          />
-        </div>
-      </Panel>
-
-      <Panel title="Peak Fitting" icon={<Sparkles size={13} />}>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="col-span-2">
-            <XRDSelectField
-              label="Model"
-              value={parameters.peakFitting.model}
-              options={XRD_PEAK_FIT_MODEL_OPTIONS}
-              onChange={(model) => updateParameterStage('peakFitting', { model })}
-            />
-          </div>
-          <XRDNumberField
-            label="Fit window"
-            value={parameters.peakFitting.fitWindowDeg}
-            min={0}
-            step={0.1}
-            unit="deg"
-            onChange={(fitWindowDeg) => updateParameterStage('peakFitting', { fitWindowDeg })}
-          />
-          <XRDNumberField
-            label="Max iterations"
-            value={parameters.peakFitting.maxIterations}
-            min={1}
-            step={1}
-            onChange={(maxIterations) => updateParameterStage('peakFitting', { maxIterations })}
-          />
-          <div className="col-span-2">
-            <XRDToggleField
-              label="Calculate crystallite size"
-              checked={parameters.peakFitting.calculateCrystalliteSize}
-              onChange={(calculateCrystalliteSize) => updateParameterStage('peakFitting', { calculateCrystalliteSize })}
-            />
-          </div>
-        </div>
-      </Panel>
+      <XRDProcessingParametersPanel
+        range={parameters.range}
+        radiation={parameters.radiation}
+        baseline={parameters.baseline}
+        smoothing={parameters.smoothing}
+        peakDetection={parameters.peakDetection}
+        peakFitting={parameters.peakFitting}
+        baselineMethodOptions={XRD_BASELINE_METHOD_OPTIONS}
+        smoothingMethodOptions={XRD_SMOOTHING_METHOD_OPTIONS}
+        peakFitModelOptions={XRD_PEAK_FIT_MODEL_OPTIONS}
+        onRangeChange={(updates) => updateParameterStage('range', updates)}
+        onRadiationChange={(updates) => updateParameterStage('radiation', updates)}
+        onBaselineChange={(updates) => updateParameterStage('baseline', updates)}
+        onSmoothingChange={(updates) => updateParameterStage('smoothing', updates)}
+        onPeakDetectionChange={(updates) => updateParameterStage('peakDetection', updates)}
+        onPeakFittingChange={(updates) => updateParameterStage('peakFitting', updates)}
+      />
 
       <XRDReferenceMatchPanel
         enabled={parameters.referenceMatch.enabled}
