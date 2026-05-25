@@ -1588,9 +1588,122 @@ def test_phase7c_phase_confirmed_always_false():
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+def build_phase7e4b_local_reference(overrides=None):
+    local_reference = {
+        "enabled": True,
+        "source_type": "uploaded_reference",
+        "reference_label": "CoFe2O4 local reference",
+        "formula": "CoFe2O4",
+        "material_family": "spinel",
+        "elements": ["Co", "Fe", "O"],
+        "source_file_name": "cofe2o4_local_reference.csv",
+        "import_status": "parsed_preview",
+        "validation_level": "usable_preview",
+        "approval_status": "approved_for_local_matching",
+        "user_approved_for_matching": True,
+        "is_eligible_for_backend_matching": True,
+        "source_file_kind": "text_peak_list",
+        "critical_errors": [],
+        "warnings": [
+            "Local reference provenance remains user/lab responsibility.",
+        ],
+        "peaks": [
+            {"two_theta": 18.37, "relative_intensity": 12.0, "hkl": "(111)", "d_spacing": 4.843},
+            {"two_theta": 30.12, "relative_intensity": 30.0, "hkl": "(220)", "d_spacing": 2.966},
+            {"two_theta": 35.48, "relative_intensity": 100.0, "hkl": "(311)", "d_spacing": 2.532},
+            {"two_theta": 43.12, "relative_intensity": 20.0, "hkl": "(400)", "d_spacing": 2.097},
+            {"two_theta": 57.02, "relative_intensity": 30.0, "hkl": "(511)", "d_spacing": 1.614},
+        ],
+    }
+    if overrides:
+        local_reference.update(overrides)
+    return local_reference
+
+
+def build_phase7e4b_local_reference_process_payload(local_reference):
+    x, y = generate_cofe2o4_xrd_pattern()
+    return {
+        "x": x,
+        "y": y,
+        "theta_min": 10.0,
+        "theta_max": 80.0,
+        "peak_threshold": 0.10,
+        "min_prominence": 0.05,
+        "parameters": {
+            "reference_match": {
+                "enabled": True,
+                "reference_set_id": "spinel_ferrite_sba15_demo_set",
+                "tolerance_two_theta": 0.5,
+                "min_score": 0.65,
+            },
+        },
+        "local_reference": local_reference,
+    }
+
+
+def log_phase7e4b_rejected_case(label, local_reference):
+    payload = build_phase7e4b_local_reference_process_payload(local_reference)
+    resp = client.post("/process", json=payload)
+    log_test(label, resp.status_code == 422, f"status={resp.status_code}; body={resp.text[:250]}")
+
+
+def test_phase7e4b_local_reference_approval_validation_rejects_invalid():
+    """Enabled local_reference requires explicit approval and import eligibility."""
+    print("\n═══ Test 23: Phase 7E.4B - Local reference approval validation rejects invalid ═══")
+
+    no_approval_fields = build_phase7e4b_local_reference()
+    for field in [
+        "import_status",
+        "validation_level",
+        "approval_status",
+        "user_approved_for_matching",
+        "is_eligible_for_backend_matching",
+        "source_file_kind",
+        "critical_errors",
+        "warnings",
+    ]:
+        no_approval_fields.pop(field, None)
+    log_phase7e4b_rejected_case(
+        "Local ref approval: enabled without approval/import metadata returns 422",
+        no_approval_fields,
+    )
+
+    log_phase7e4b_rejected_case(
+        "Local ref approval: not_reviewed returns 422",
+        build_phase7e4b_local_reference({"approval_status": "not_reviewed"}),
+    )
+    log_phase7e4b_rejected_case(
+        "Local ref approval: requires_peak_extraction returns 422",
+        build_phase7e4b_local_reference({"import_status": "requires_peak_extraction"}),
+    )
+    for blocked_status in [
+        "requires_converter",
+        "unsupported_format",
+        "corrupted_file",
+        "parse_error",
+        "not_supported_yet",
+    ]:
+        log_phase7e4b_rejected_case(
+            f"Local ref approval: {blocked_status} returns 422",
+            build_phase7e4b_local_reference({"import_status": blocked_status}),
+        )
+    log_phase7e4b_rejected_case(
+        "Local ref approval: user_approved_for_matching=false returns 422",
+        build_phase7e4b_local_reference({"user_approved_for_matching": False}),
+    )
+    log_phase7e4b_rejected_case(
+        "Local ref approval: is_eligible_for_backend_matching=false returns 422",
+        build_phase7e4b_local_reference({"is_eligible_for_backend_matching": False}),
+    )
+    log_phase7e4b_rejected_case(
+        "Local ref approval: critical_errors non-empty returns 422",
+        build_phase7e4b_local_reference({"critical_errors": ["no parsable 2theta values"]}),
+    )
+
+
 def test_phase7d5_local_reference_enabled_returns_v2():
     """Enabled request-scoped local reference returns candidate-only v2 evidence."""
-    print("\n═══ Test 23: Phase 7D.5 — Local reference enabled returns v2 ═══")
+    print("\n═══ Test 24: Phase 7D.5 - Local reference enabled returns v2 ═══")
     x, y = generate_cofe2o4_xrd_pattern()
 
     payload = {
@@ -1616,6 +1729,16 @@ def test_phase7d5_local_reference_enabled_returns_v2():
             "material_family": "spinel",
             "elements": ["Co", "Fe", "O"],
             "source_file_name": "cofe2o4_local_reference.csv",
+            "import_status": "parsed_preview",
+            "validation_level": "usable_preview",
+            "approval_status": "approved_for_local_matching",
+            "user_approved_for_matching": True,
+            "is_eligible_for_backend_matching": True,
+            "source_file_kind": "text_peak_list",
+            "critical_errors": [],
+            "warnings": [
+                "Local reference provenance remains user/lab responsibility.",
+            ],
             "peaks": [
                 {"two_theta": 18.37, "relative_intensity": 12.0, "hkl": "(111)", "d_spacing": 4.843},
                 {"two_theta": 30.12, "relative_intensity": 30.0, "hkl": "(220)", "d_spacing": 2.966},
@@ -1667,7 +1790,7 @@ def test_phase7d5_local_reference_enabled_returns_v2():
 
 def test_phase7d5_local_reference_disabled_preserves_curated():
     """Disabled local_reference must not override active curated matching."""
-    print("\n═══ Test 24: Phase 7D.5 — Disabled local reference preserves curated ═══")
+    print("\n═══ Test 25: Phase 7D.5 - Disabled local reference preserves curated ═══")
     x, y = generate_cofe2o4_xrd_pattern()
 
     payload = {
@@ -1715,21 +1838,19 @@ def test_phase7d5_local_reference_disabled_preserves_curated():
 
 def test_phase7d5_local_reference_too_few_peaks_rejected():
     """Enabled local_reference with fewer than 3 peaks returns 422."""
-    print("\n═══ Test 25: Phase 7D.5 — Local reference fewer than 3 peaks rejected ═══")
+    print("\n═══ Test 26: Phase 7D.5 - Local reference fewer than 3 peaks rejected ═══")
     x, y = generate_cofe2o4_xrd_pattern()
 
     payload = {
         "x": x,
         "y": y,
-        "local_reference": {
-            "enabled": True,
-            "source_type": "uploaded_reference",
+        "local_reference": build_phase7e4b_local_reference({
             "reference_label": "Too few peaks",
             "peaks": [
                 {"two_theta": 30.12},
                 {"two_theta": 35.48},
             ],
-        },
+        }),
     }
 
     resp = client.post("/process", json=payload)
@@ -1775,6 +1896,7 @@ if __name__ == "__main__":
     test_phase7c_no_match_filtering()
     test_phase7c_disabled_returns_none()
     test_phase7c_phase_confirmed_always_false()
+    test_phase7e4b_local_reference_approval_validation_rejects_invalid()
     test_phase7d5_local_reference_enabled_returns_v2()
     test_phase7d5_local_reference_disabled_preserves_curated()
     test_phase7d5_local_reference_too_few_peaks_rejected()

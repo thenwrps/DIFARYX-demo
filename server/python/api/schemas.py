@@ -121,14 +121,50 @@ class XRDLocalReferenceRequest(BaseModel):
     elements: List[str] = Field(default_factory=list)
     source_file_name: Optional[str] = None
     peaks: List[XRDLocalReferencePeakRequest] = Field(default_factory=list)
+    import_status: Optional[str] = None
+    validation_level: Optional[str] = None
+    approval_status: Optional[str] = None
+    user_approved_for_matching: bool = Field(default=False)
+    is_eligible_for_backend_matching: bool = Field(default=False)
+    source_file_kind: Optional[str] = None
+    critical_errors: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate_enabled_reference(self) -> "XRDLocalReferenceRequest":
         if not self.enabled:
             return self
+        blocked_import_statuses = {
+            "requires_converter",
+            "requires_peak_extraction",
+            "unsupported_format",
+            "corrupted_file",
+            "parse_error",
+            "not_supported_yet",
+        }
         if not self.reference_label.strip():
             raise ValueError(
                 "local_reference.reference_label is required when local reference matching is enabled."
+            )
+        if self.approval_status != "approved_for_local_matching":
+            raise ValueError(
+                "local_reference.approval_status must be approved_for_local_matching when enabled."
+            )
+        if self.user_approved_for_matching is not True:
+            raise ValueError(
+                "local_reference.user_approved_for_matching must be true when enabled."
+            )
+        if self.is_eligible_for_backend_matching is not True:
+            raise ValueError(
+                "local_reference.is_eligible_for_backend_matching must be true when enabled."
+            )
+        if self.import_status in blocked_import_statuses:
+            raise ValueError(
+                f"local_reference.import_status {self.import_status} is not eligible for matching."
+            )
+        if self.critical_errors:
+            raise ValueError(
+                "local_reference.critical_errors must be empty when enabled."
             )
         if len(self.peaks) < 3:
             raise ValueError(

@@ -280,6 +280,14 @@ export interface XRDLocalReferencePayload {
   materialFamily?: string;
   elements: string[];
   sourceFileName?: string;
+  importStatus?: string;
+  validationLevel?: string;
+  approvalStatus?: string;
+  userApprovedForMatching?: boolean;
+  isEligibleForBackendMatching?: boolean;
+  sourceFileKind?: string;
+  criticalErrors?: string[];
+  warnings?: string[];
   peaks: XRDLocalReferencePeakPayload[];
 }
 
@@ -291,6 +299,14 @@ export interface XRDBackendLocalReferenceRequest {
   material_family?: string;
   elements: string[];
   source_file_name?: string;
+  import_status?: string;
+  validation_level?: string;
+  approval_status?: string;
+  user_approved_for_matching?: boolean;
+  is_eligible_for_backend_matching?: boolean;
+  source_file_kind?: string;
+  critical_errors?: string[];
+  warnings?: string[];
   peaks: Array<{
     two_theta: number;
     relative_intensity?: number;

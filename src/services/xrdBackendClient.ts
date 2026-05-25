@@ -173,6 +173,18 @@ export function mapXrdLocalReferenceToBackend(
     ...(optionalString(localReference.materialFamily) ? { material_family: optionalString(localReference.materialFamily) } : {}),
     elements: localReference.elements,
     ...(optionalString(localReference.sourceFileName) ? { source_file_name: optionalString(localReference.sourceFileName) } : {}),
+    ...(optionalString(localReference.importStatus) ? { import_status: optionalString(localReference.importStatus) } : {}),
+    ...(optionalString(localReference.validationLevel) ? { validation_level: optionalString(localReference.validationLevel) } : {}),
+    ...(optionalString(localReference.approvalStatus) ? { approval_status: optionalString(localReference.approvalStatus) } : {}),
+    ...(localReference.userApprovedForMatching !== undefined
+      ? { user_approved_for_matching: localReference.userApprovedForMatching }
+      : {}),
+    ...(localReference.isEligibleForBackendMatching !== undefined
+      ? { is_eligible_for_backend_matching: localReference.isEligibleForBackendMatching }
+      : {}),
+    ...(optionalString(localReference.sourceFileKind) ? { source_file_kind: optionalString(localReference.sourceFileKind) } : {}),
+    ...(localReference.criticalErrors ? { critical_errors: localReference.criticalErrors } : {}),
+    ...(localReference.warnings ? { warnings: localReference.warnings } : {}),
     peaks: localReference.peaks.map((peak) => ({
       two_theta: peak.twoTheta,
       ...(Number.isFinite(peak.relativeIntensity) ? { relative_intensity: peak.relativeIntensity } : {}),
