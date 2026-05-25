@@ -126,6 +126,8 @@ import {
   saveXrdLocalReferenceDraft,
   type XRDStoredLocalReferenceRecord,
 } from '../../data/xrdLocalReferences';
+import { XRDReadinessPanel } from './xrd/XRDReadinessPanel';
+import { XRDBoundaryPanel } from './xrd/XRDBoundaryPanel';
 import { saveXrdBackendEvidenceResult } from '../../data/xrdBackendEvidence';
 import { runRamanProcessing } from '../../agents/ramanAgent/runner';
 import { getRamanProcessingParams, getRamanParameterSnapshot } from '../../utils/ramanParameterAdapter';
@@ -819,21 +821,6 @@ function getXrdReadinessState({
     message: 'Targeted candidate matching is available under user-declared sample context.',
     tone: 'info',
   };
-}
-
-function formatXrdReadinessAnalysisMode(mode: XRDReadinessAnalysisMode) {
-  switch (mode) {
-    case 'signal_processing_only':
-      return 'Signal processing only';
-    case 'candidate_screening':
-      return 'Candidate screening';
-    case 'targeted_candidate_match':
-      return 'Targeted candidate match';
-    case 'not_ready':
-      return 'Not ready';
-    default:
-      return mode;
-  }
 }
 
 export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName, sessionId }: TechniqueWorkspaceShellProps) {
@@ -3329,25 +3316,16 @@ function XRDParametersPanel({
         </div>
       </Panel>
 
-      <Panel title="XRD Readiness" icon={<CheckCircle2 size={13} />}>
-        <XRDStatusText tone={readiness.tone}>{readiness.message}</XRDStatusText>
-        <div className="mt-2 grid grid-cols-2 gap-1">
-          <Metric label="Analysis mode" value={formatXrdReadinessAnalysisMode(readiness.analysisMode)} />
-          <Metric label="Signal" value={readiness.hasSignal ? 'Available' : 'Not ready'} />
-          <Metric label="Reference set" value={readiness.hasReferenceSet ? 'Selected' : 'Required'} />
-          <Metric label="Known elements" value={readiness.hasKnownElements ? 'Provided' : 'Not provided'} />
-          <Metric label="Declared phases" value={readiness.hasDeclaredPhases ? 'Provided' : 'Optional'} />
-          <Metric label="Reference match" value={readiness.referenceMatchEnabled ? 'Enabled' : 'Disabled'} />
-        </div>
-        <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
-          <p className="text-[9px] font-bold uppercase tracking-wide text-amber-900">Boundary</p>
-          <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-amber-900">
-            <li>No chemical identity confirmation.</li>
-            <li>No phase purity confirmation.</li>
-            <li>Candidate evidence only when reference matching is used.</li>
-          </ul>
-        </div>
-      </Panel>
+      <XRDReadinessPanel
+        analysisMode={readiness.analysisMode}
+        hasSignal={readiness.hasSignal}
+        hasReferenceSet={readiness.hasReferenceSet}
+        hasKnownElements={readiness.hasKnownElements}
+        hasDeclaredPhases={readiness.hasDeclaredPhases}
+        referenceMatchEnabled={readiness.referenceMatchEnabled}
+        message={readiness.message}
+        tone={readiness.tone}
+      />
 
       <Panel title="Range & Radiation" icon={<FlaskConical size={13} />}>
         <div className="grid grid-cols-2 gap-2">
@@ -4032,49 +4010,21 @@ function XRDParametersPanel({
         </div>
       </Panel>
 
-      <Panel title="Boundary" icon={<Lock size={13} />}>
-        <XRDStatusText tone="warning">
-          Identity confirmation and phase purity confirmation remain blocked.
-        </XRDStatusText>
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <div className="col-span-2">
-            <XRDToggleField
-              label="Boundary gate"
-              checked={parameters.boundary.enabled}
-              onChange={(enabled) => updateParameterStage('boundary', { enabled })}
-            />
-          </div>
-          <div className="col-span-2">
-            <XRDSelectField
-              label="Claim mode"
-              value={parameters.boundary.claimMode}
-              options={XRD_CLAIM_MODE_OPTIONS}
-              onChange={(claimMode) => updateParameterStage('boundary', { claimMode })}
-            />
-          </div>
-          <XRDToggleField
-            label="Require complementary evidence"
-            checked={parameters.boundary.requireComplementaryEvidence}
-            onChange={(requireComplementaryEvidence) => updateParameterStage('boundary', { requireComplementaryEvidence })}
-          />
-          <XRDToggleField
-            label="Require reference set"
-            checked={parameters.boundary.requireReferenceSetForMatch}
-            onChange={(requireReferenceSetForMatch) => updateParameterStage('boundary', { requireReferenceSetForMatch })}
-          />
-          <div className="col-span-2">
-            <XRDToggleField
-              label="Require sample context for targeted match"
-              checked={parameters.boundary.requireSampleContextForTargetedMatch}
-              onChange={(requireSampleContextForTargetedMatch) => updateParameterStage('boundary', { requireSampleContextForTargetedMatch })}
-            />
-          </div>
-        </div>
-        <div className="mt-2 space-y-1">
-          <Metric label="Identity confirmation" value={parameters.boundary.allowIdentityClaim ? 'Enabled' : 'Blocked'} />
-          <Metric label="Phase purity confirmation" value={parameters.boundary.allowPhasePurityClaim ? 'Enabled' : 'Blocked'} />
-        </div>
-      </Panel>
+      <XRDBoundaryPanel
+        enabled={parameters.boundary.enabled}
+        claimMode={parameters.boundary.claimMode}
+        requireComplementaryEvidence={parameters.boundary.requireComplementaryEvidence}
+        requireReferenceSetForMatch={parameters.boundary.requireReferenceSetForMatch}
+        requireSampleContextForTargetedMatch={parameters.boundary.requireSampleContextForTargetedMatch}
+        allowIdentityClaim={parameters.boundary.allowIdentityClaim}
+        allowPhasePurityClaim={parameters.boundary.allowPhasePurityClaim}
+        claimModeOptions={XRD_CLAIM_MODE_OPTIONS}
+        onEnabledChange={(enabled) => updateParameterStage('boundary', { enabled })}
+        onClaimModeChange={(claimMode) => updateParameterStage('boundary', { claimMode })}
+        onRequireComplementaryEvidenceChange={(requireComplementaryEvidence) => updateParameterStage('boundary', { requireComplementaryEvidence })}
+        onRequireReferenceSetForMatchChange={(requireReferenceSetForMatch) => updateParameterStage('boundary', { requireReferenceSetForMatch })}
+        onRequireSampleContextForTargetedMatchChange={(requireSampleContextForTargetedMatch) => updateParameterStage('boundary', { requireSampleContextForTargetedMatch })}
+      />
 
       <Panel title="Legacy Demo Processing" icon={<Play size={13} />}>
         <p className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] leading-relaxed text-text-muted">
