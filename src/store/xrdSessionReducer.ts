@@ -181,6 +181,108 @@ export function xrdSessionReducer(
       };
     }
 
+    case 'APPEND_SCIENTIFIC_EVIDENCE': {
+      if (currentStatus !== 'processing') {
+        console.warn(
+          `[XrdWorkflowSession Reducer] Blocked APPEND_SCIENTIFIC_EVIDENCE: System is in '${currentStatus}' status, but must be in 'processing' status.`,
+        );
+        return state;
+      }
+      
+      const { scientificData } = event.payload;
+      const scientificEvidence = scientificData?.workflowScientificEvidence || scientificData;
+      const detectedPeakCount = scientificData?.detectedPeakCount ?? 0;
+      const fittedPeakCount = scientificData?.fittedPeakCount ?? 0;
+      const snRatio = scientificData?.snRatio ?? 0;
+      const baselineDeviation = scientificData?.baselineDeviation ?? 0;
+      const peakResolution = scientificData?.peakResolution ?? null;
+
+      return {
+        ...state,
+        updatedAt: now,
+        processing: state.processing
+          ? {
+              ...state.processing,
+              qualityMetrics: {
+                detectedPeakCount,
+                fittedPeakCount,
+                snRatio,
+                baselineDeviation,
+                peakResolution,
+              },
+            }
+          : {
+              groupedParametersReceived: false,
+              qualityMetrics: {
+                detectedPeakCount,
+                fittedPeakCount,
+                snRatio,
+                baselineDeviation,
+                peakResolution,
+              },
+            },
+        evidence: {
+          ...state.evidence,
+          scientificEvidence,
+        },
+      };
+    }
+
+    case 'APPEND_REFERENCE_MATCH': {
+      if (currentStatus !== 'processing') {
+        console.warn(
+          `[XrdWorkflowSession Reducer] Blocked APPEND_REFERENCE_MATCH: System is in '${currentStatus}' status, but must be in 'processing' status.`,
+        );
+        return state;
+      }
+
+      const { referenceData, phaseSummary } = event.payload;
+      const existingLimitations = state.scientificBoundaries.limitations || [];
+      const newLimitations = referenceData?.limitations || [];
+      const limitations = [...existingLimitations];
+      for (const lim of newLimitations) {
+        if (!limitations.includes(lim)) {
+          limitations.push(lim);
+        }
+      }
+
+      return {
+        ...state,
+        updatedAt: now,
+        evidence: {
+          ...state.evidence,
+          referenceMatch: referenceData,
+          phaseMatch: phaseSummary,
+          limitations: referenceData?.limitations || [],
+        },
+        scientificBoundaries: {
+          ...state.scientificBoundaries,
+          candidateEvidenceOnly: true,
+          limitations,
+        },
+      };
+    }
+
+    case 'SET_VALIDATION_GAPS': {
+      if (currentStatus !== 'processing') {
+        console.warn(
+          `[XrdWorkflowSession Reducer] Blocked SET_VALIDATION_GAPS: System is in '${currentStatus}' status, but must be in 'processing' status.`,
+        );
+        return state;
+      }
+
+      const { gaps } = event.payload;
+
+      return {
+        ...state,
+        updatedAt: now,
+        evidence: {
+          ...state.evidence,
+          validationGaps: gaps,
+        },
+      };
+    }
+
     default:
       return state;
   }

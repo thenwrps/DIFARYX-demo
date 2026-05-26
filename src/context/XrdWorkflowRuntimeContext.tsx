@@ -348,8 +348,60 @@ export function XrdWorkflowRuntimeProvider({ children }: XrdWorkflowRuntimeProvi
         setIsValidated7E4(nextIsValidated7E4);
       }
 
+      // 5. Radiate evidence changes to currentEvidence
+      if (nextSession.evidence) {
+        const nextEvidence = nextSession.evidence;
+        const qm = nextSession.processing?.qualityMetrics;
+        const pm = nextEvidence.phaseMatch;
+
+        const tempEvidenceRecordForHandoff: XRDBackendEvidenceRecord = {
+          projectId: nextSession.projectId || currentEvidence?.projectId || '__unassigned__',
+          uploadedRunId: currentEvidence?.uploadedRunId,
+          fileName: currentEvidence?.fileName,
+          timestamp: nextSession.createdAt,
+          detectedPeakCount: qm?.detectedPeakCount ?? 0,
+          fittedPeakCount: qm?.fittedPeakCount ?? 0,
+          snRatio: qm?.snRatio ?? 0,
+          baselineDeviation: qm?.baselineDeviation ?? 0,
+          peakResolution: qm?.peakResolution || 'screening-grade',
+          primaryPhase: pm?.primaryPhase ?? null,
+          matchedPeakCount: pm?.matchedPeakCount ?? 0,
+          phaseSummary: pm?.phaseSummary ?? null,
+          isPhaseMatched: pm?.isPhaseMatched ?? false,
+          yResidualCount: currentEvidence?.yResidualCount ?? 0,
+          workflowScientificEvidence: nextEvidence.scientificEvidence,
+          workflowReferenceMatchEvidence: nextEvidence.referenceMatch,
+          datasetContextEcho: currentEvidence?.datasetContextEcho,
+          processingProvenance: nextSession.processing?.provenance || currentEvidence?.processingProvenance,
+        };
+
+        const handoffState = buildXrdWorkflowSession({
+          sessionId: nextSession.sessionId,
+          isProcessing: nextIsProcessing,
+          activeStage: nextLegacyStage,
+          isValidated7E4: nextIsValidated7E4,
+          evidenceRecord: tempEvidenceRecordForHandoff,
+        }).xrdWorkflowHandoffState;
+
+        const reconstructedEvidence: XRDBackendEvidenceRecord = {
+          ...tempEvidenceRecordForHandoff,
+          xrdWorkflowHandoffState: handoffState,
+        };
+
+        setCurrentEvidence((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(reconstructedEvidence)) {
+            return prev;
+          }
+          return reconstructedEvidence;
+        });
+      } else {
+        setCurrentEvidence((prev) => {
+          if (prev === null) return null;
+          return null;
+        });
+      }
+
       if (event.type === 'FORCE_RESET_SESSION') {
-        setCurrentEvidence(null);
         setSessionResetNotification(null);
         clearSessionPacket();
       }
@@ -382,28 +434,64 @@ export function XrdWorkflowRuntimeProvider({ children }: XrdWorkflowRuntimeProvi
 
   // Actions
   const updateRuntimeEvidence = useCallback((evidence: XrdRuntimeEvidence) => {
-    if (evidence) {
-      dispatchWorkflowEvent({ type: 'COMPLETE_PROCESSING' });
+    if (!evidence) {
+      const newSessionId = `xrd-session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      dispatchWorkflowEvent({ type: 'FORCE_RESET_SESSION', payload: { newSessionId } });
+      return;
     }
-    setCurrentEvidence(evidence);
-    setCurrentSession((prev) => {
-      const base = buildXrdWorkflowSession({
-        sessionId: prev?.sessionId,
-        isProcessing: false,
-        activeStage: null,
-        isValidated7E4,
-        evidenceRecord: evidence,
-      });
-      return {
-        ...base,
-        runtime: {
-          ...base.runtime,
-          status: prev && prev.runtime.status === 'processing' ? 'completed' : base.runtime.status,
-          activeStage: prev?.runtime.activeStage,
-        }
-      };
+
+    // Ensure we are in processing status before appending evidence
+    const statusCheck = currentSession?.runtime.status;
+    if (statusCheck !== 'processing') {
+      dispatchWorkflowEvent({ type: 'START_PROCESSING', payload: { stage: 'baseline' } });
+    }
+
+    // 1. Dispatch APPEND_SCIENTIFIC_EVIDENCE
+    dispatchWorkflowEvent({
+      type: 'APPEND_SCIENTIFIC_EVIDENCE',
+      payload: {
+        scientificData: evidence,
+      },
     });
-  }, [dispatchWorkflowEvent, isValidated7E4]);
+
+    // 2. Dispatch APPEND_REFERENCE_MATCH
+    if (evidence.workflowReferenceMatchEvidence) {
+      dispatchWorkflowEvent({
+        type: 'APPEND_REFERENCE_MATCH',
+        payload: {
+          referenceData: evidence.workflowReferenceMatchEvidence,
+          phaseSummary: {
+            isPhaseMatched: evidence.isPhaseMatched ?? false,
+            primaryPhase: evidence.primaryPhase ?? null,
+            matchedPeakCount: evidence.matchedPeakCount ?? 0,
+            phaseSummary: evidence.phaseSummary ?? null,
+          },
+        },
+      });
+    }
+
+    // 3. Dispatch SET_VALIDATION_GAPS
+    const validationGaps: string[] = [];
+    if (evidence.xrdWorkflowHandoffState?.validationGaps) {
+      validationGaps.push(...evidence.xrdWorkflowHandoffState.validationGaps);
+    } else {
+      if (evidence.workflowScientificEvidence?.validationGaps) {
+        validationGaps.push(...evidence.workflowScientificEvidence.validationGaps);
+      }
+      if (evidence.workflowReferenceMatchEvidence?.limitations) {
+        validationGaps.push(...evidence.workflowReferenceMatchEvidence.limitations);
+      }
+    }
+    dispatchWorkflowEvent({
+      type: 'SET_VALIDATION_GAPS',
+      payload: {
+        gaps: validationGaps,
+      },
+    });
+
+    // 4. Complete processing
+    dispatchWorkflowEvent({ type: 'COMPLETE_PROCESSING' });
+  }, [dispatchWorkflowEvent, currentSession]);
 
   const setActiveStage = useCallback((stage: XrdWorkflowStage) => {
     let nextStage: 'baseline' | 'smoothing' | 'peak_detection' | 'fitting' | 'reference_matching' | 'handoff' | undefined;

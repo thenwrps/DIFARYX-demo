@@ -98,5 +98,9 @@ export type XrdWorkflowEvent =
   | { type: 'COMPLETE_PROCESSING'; payload?: { completedAt?: string } }
   | { type: 'FAIL_PROCESSING'; payload: { errorMessage: string } }
   | { type: 'FORCE_RESET_SESSION'; payload: { newSessionId: string } }
-  | { type: 'SET_VALIDATION'; payload: { isValidated7E4: boolean } };
+  | { type: 'SET_VALIDATION'; payload: { isValidated7E4: boolean } }
+  | { type: 'APPEND_SCIENTIFIC_EVIDENCE'; payload: { scientificData: any } }
+  | { type: 'APPEND_REFERENCE_MATCH'; payload: { referenceData: any; phaseSummary: any } }
+  | { type: 'SET_VALIDATION_GAPS'; payload: { gaps: string[] } };
+
 
