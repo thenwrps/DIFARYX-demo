@@ -23,6 +23,8 @@ import type {
   XRDReferenceMatchV2EvidenceSummary,
 } from './xrdBackendEvidence';
 import type { NotebookEntry } from './workflowPipeline';
+import type { XrdWorkflowSession } from '../types/xrdWorkflowSession';
+import { buildXrdWorkflowSession } from '../utils/xrdSessionAdapter';
 
 export interface XrdQualityMetrics {
   detectedPeakCount: number;
@@ -53,6 +55,7 @@ export interface XrdHandoffInput {
   referenceMatchV2Summary?: XRDReferenceMatchV2EvidenceSummary;
   xrdBackendEvidenceSummary?: NotebookEntry['xrdBackendEvidenceSummary'];
   xrdReferenceMatchV2Summary?: NotebookEntry['xrdReferenceMatchV2Summary'];
+  currentSession?: XrdWorkflowSession | null;
   
   // Legacy root properties for fallback matching
   detectedPeakCount?: number;
@@ -334,4 +337,76 @@ export function extractReferenceMatchFields(
     phaseConfirmed: 'phaseConfirmed' in evidence ? evidence.phaseConfirmed : false,
     phasePurityConfirmed: 'phasePurityConfirmed' in evidence ? evidence.phasePurityConfirmed : false,
   };
+}
+
+// ── Session Selectors ───────────────────────────────────────────────
+
+/**
+ * Select the direct canonical session from input/state.
+ * Returns the currentSession if present, otherwise undefined.
+ */
+export function selectXrdWorkflowSession(
+  input: XrdHandoffInput | null | undefined,
+): XrdWorkflowSession | undefined {
+  return input?.currentSession || undefined;
+}
+
+/**
+ * Select synthesized canonical session from legacy context/evidence.
+ * If currentSession exists, returns it. Otherwise, converts legacy inputs
+ * using buildXrdWorkflowSession to provide compatibility.
+ */
+export function selectSynthesizedSession(
+  input: XrdHandoffInput | null | undefined,
+  extraParams?: {
+    isProcessing?: boolean;
+    activeStage?: string | null;
+    isValidated7E4?: boolean;
+    errorMessage?: string;
+  }
+): XrdWorkflowSession | undefined {
+  if (!input) return undefined;
+
+  // If a direct canonical session is already present, prioritize it
+  if (input.currentSession) {
+    return input.currentSession;
+  }
+
+  // Synthesize from legacy input fields
+  const evidenceRecord: XRDBackendEvidenceRecord | null = input.xrdWorkflowHandoffState || input.detectedPeakCount !== undefined
+    ? {
+        projectId: input.xrdWorkflowHandoffState?.projectId || '__unassigned__',
+        uploadedRunId: input.xrdWorkflowHandoffState?.uploadedRunId,
+        fileName: input.xrdWorkflowHandoffState?.fileName,
+        timestamp: input.xrdWorkflowHandoffState?.createdAt || new Date().toISOString(),
+        detectedPeakCount: input.detectedPeakCount ?? input.xrdWorkflowHandoffState?.qualityMetrics?.detectedPeakCount ?? 0,
+        fittedPeakCount: input.fittedPeakCount ?? input.xrdWorkflowHandoffState?.qualityMetrics?.fittedPeakCount ?? 0,
+        snRatio: input.snRatio ?? input.xrdWorkflowHandoffState?.qualityMetrics?.snRatio ?? 0,
+        baselineDeviation: input.baselineDeviation ?? input.xrdWorkflowHandoffState?.qualityMetrics?.baselineDeviation ?? 0,
+        peakResolution: (input.peakResolution || input.xrdWorkflowHandoffState?.qualityMetrics?.peakResolution || 'screening-grade') as any,
+        primaryPhase: input.primaryPhase ?? input.xrdWorkflowHandoffState?.phaseMatchSummary?.primaryPhase ?? null,
+        matchedPeakCount: input.matchedPeakCount ?? input.xrdWorkflowHandoffState?.phaseMatchSummary?.matchedPeakCount ?? 0,
+        phaseSummary: input.phaseSummary ?? input.xrdWorkflowHandoffState?.phaseMatchSummary?.phaseSummary ?? null,
+        isPhaseMatched: input.isPhaseMatched ?? input.xrdWorkflowHandoffState?.phaseMatchSummary?.isPhaseMatched ?? false,
+        yResidualCount: 0,
+        xrdWorkflowHandoffState: input.xrdWorkflowHandoffState,
+        workflowScientificEvidence: input.workflowScientificEvidence || input.xrdWorkflowHandoffState?.workflowScientificEvidence,
+        workflowReferenceMatchEvidence: input.workflowReferenceMatchEvidence || input.xrdWorkflowHandoffState?.workflowReferenceMatchEvidence,
+        datasetContextEcho: input.datasetContextEcho || input.xrdWorkflowHandoffState?.datasetContextEcho,
+        processingProvenance: input.processingProvenance || input.xrdWorkflowHandoffState?.processingProvenance,
+      }
+    : null;
+
+  return buildXrdWorkflowSession({
+    sessionId: input.xrdWorkflowHandoffState?.handoffId,
+    projectId: input.xrdWorkflowHandoffState?.projectId,
+    uploadedRunId: input.xrdWorkflowHandoffState?.uploadedRunId,
+    fileName: input.xrdWorkflowHandoffState?.fileName,
+    isProcessing: extraParams?.isProcessing,
+    activeStage: extraParams?.activeStage,
+    isValidated7E4: extraParams?.isValidated7E4,
+    errorMessage: extraParams?.errorMessage,
+    datasetContext: undefined,
+    evidenceRecord,
+  });
 }
