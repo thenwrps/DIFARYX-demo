@@ -24,6 +24,21 @@ import type {
 } from './xrdBackendEvidence';
 import type { NotebookEntry } from './workflowPipeline';
 
+export interface XrdQualityMetrics {
+  detectedPeakCount: number;
+  fittedPeakCount: number;
+  snRatio: number;
+  baselineDeviation: number;
+  peakResolution: string | null;
+}
+
+export interface XrdPhaseMatchSummary {
+  isPhaseMatched: boolean;
+  primaryPhase: string | null;
+  matchedPeakCount: number;
+  phaseSummary: string | null;
+}
+
 /**
  * Normalized input interface for selector helpers.
  * Can be satisfied by XRDBackendEvidenceRecord or NotebookEntry.
@@ -38,6 +53,17 @@ export interface XrdHandoffInput {
   referenceMatchV2Summary?: XRDReferenceMatchV2EvidenceSummary;
   xrdBackendEvidenceSummary?: NotebookEntry['xrdBackendEvidenceSummary'];
   xrdReferenceMatchV2Summary?: NotebookEntry['xrdReferenceMatchV2Summary'];
+  
+  // Legacy root properties for fallback matching
+  detectedPeakCount?: number;
+  fittedPeakCount?: number;
+  snRatio?: number;
+  baselineDeviation?: number;
+  peakResolution?: string | null;
+  primaryPhase?: string | null;
+  matchedPeakCount?: number;
+  phaseSummary?: string | null;
+  isPhaseMatched?: boolean;
 }
 
 // ── Handoff State Selectors ─────────────────────────────────────────
@@ -50,6 +76,82 @@ export function selectXrdWorkflowHandoffState(
   input: XrdHandoffInput | null | undefined,
 ): XRDWorkflowHandoffState | undefined {
   return input?.xrdWorkflowHandoffState;
+}
+
+/**
+ * Select XRD quality metrics with three-tier fallback.
+ */
+export function selectXrdQualityMetrics(
+  input: XrdHandoffInput | null | undefined,
+): XrdQualityMetrics | undefined {
+  if (!input) return undefined;
+
+  // Tier 1: Unified handoff state
+  if (input.xrdWorkflowHandoffState?.qualityMetrics) {
+    return input.xrdWorkflowHandoffState.qualityMetrics;
+  }
+
+  // Tier 2: Notebook entry summary
+  if (input.xrdBackendEvidenceSummary) {
+    const summary = input.xrdBackendEvidenceSummary;
+    return {
+      detectedPeakCount: summary.detectedPeakCount,
+      fittedPeakCount: summary.fittedPeakCount,
+      snRatio: summary.snRatio,
+      baselineDeviation: summary.baselineDeviation,
+      peakResolution: summary.peakResolution,
+    };
+  }
+
+  // Tier 3: Direct root properties of legacy backend evidence record
+  if (input.detectedPeakCount !== undefined) {
+    return {
+      detectedPeakCount: input.detectedPeakCount,
+      fittedPeakCount: input.fittedPeakCount ?? 0,
+      snRatio: input.snRatio ?? 0,
+      baselineDeviation: input.baselineDeviation ?? 0,
+      peakResolution: input.peakResolution ?? null,
+    };
+  }
+
+  return undefined;
+}
+
+/**
+ * Select XRD phase match summary with three-tier fallback.
+ */
+export function selectXrdPhaseMatchSummary(
+  input: XrdHandoffInput | null | undefined,
+): XrdPhaseMatchSummary | undefined {
+  if (!input) return undefined;
+
+  // Tier 1: Unified handoff state
+  if (input.xrdWorkflowHandoffState?.phaseMatchSummary) {
+    return input.xrdWorkflowHandoffState.phaseMatchSummary;
+  }
+
+  // Tier 2: Notebook entry summary
+  if (input.xrdBackendEvidenceSummary) {
+    const summary = input.xrdBackendEvidenceSummary;
+    return {
+      isPhaseMatched: summary.primaryPhase !== null,
+      primaryPhase: summary.primaryPhase,
+      matchedPeakCount: summary.matchedPeakCount,
+      phaseSummary: summary.phaseSummary,
+    };
+  }
+
+  // Tier 3: Direct root properties of legacy backend evidence record
+  if (input.isPhaseMatched !== undefined || input.primaryPhase !== undefined) {
+    return {
+      isPhaseMatched: input.isPhaseMatched ?? false,
+      primaryPhase: input.primaryPhase ?? null,
+      matchedPeakCount: input.matchedPeakCount ?? 0,
+      phaseSummary: input.phaseSummary ?? null,
+    };
+  }
+
+  return undefined;
 }
 
 // ── Scientific Evidence Selectors ───────────────────────────────────

@@ -68,6 +68,7 @@ import {
 } from '../../utils/parameterStateManager';
 import { getProjectEvidenceSnapshot, type ProjectEvidenceSnapshot } from '../../utils/evidenceSnapshot';
 import { useAuth } from '../../contexts/AuthContext';
+import { useXrdWorkflowRuntime } from '../../context/XrdWorkflowRuntimeContext';
 import {
   getEffectiveWorkspaceMode,
   getStoredWorkspaceMode,
@@ -831,6 +832,13 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
   const config = useMemo(() => getTechniqueWorkspaceConfig(technique), [technique]);
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
+  // Phase X6B: Access runtime context for reactive event dispatching
+  const {
+    updateRuntimeEvidence,
+    setActiveStage,
+    setProcessingStatus,
+    set7E4ValidationStatus,
+  } = useXrdWorkflowRuntime();
   const routeContext = getEvidenceRouteContext({
     authUser: user,
     searchParams,
@@ -1273,6 +1281,12 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
     setXrdBackendError(null);
     setXrdBackendSaved(false);
 
+    // Phase X6B: Dispatch runtime processing start event
+    if (technique === 'xrd') {
+      setProcessingStatus(true);
+      setActiveStage('baseline');
+    }
+
     processXrdSkillEvidence({
       x: signalSource.x,
       y: signalSource.y,
@@ -1283,7 +1297,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
       .then((normalized) => {
         setXrdBackendResult(normalized);
         setXrdBackendLoading(false);
-        saveXrdBackendEvidenceResult(
+        const savedRecord = saveXrdBackendEvidenceResult(
           projectId ?? undefined,
           signalSource.uploadedRunId,
           normalized,
@@ -1296,6 +1310,13 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
             `[backend] XRD backend processing complete - ${normalized.detectedPeakCount} peaks, S/N ${normalized.snRatio.toFixed(1)} (evidence saved for handoff)`,
           ),
         );
+
+        // Phase X6B: Dispatch saved evidence record to runtime context
+        if (technique === 'xrd') {
+          updateRuntimeEvidence(savedRecord);
+          setActiveStage(null);
+          setProcessingStatus(false);
+        }
       })
       .catch((err) => {
         const message = err instanceof XRDBackendError ? err.message : 'XRD backend unreachable';
@@ -1304,6 +1325,12 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
         setSessionState((prev) =>
           addLog(prev, `[backend] XRD backend call failed (non-blocking): ${message}`),
         );
+
+        // Phase X6B: Dispatch runtime processing end on error
+        if (technique === 'xrd') {
+          setActiveStage(null);
+          setProcessingStatus(false);
+        }
       });
   };
 
@@ -1424,6 +1451,11 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
             setXrdBackendLoading(true);
             setXrdBackendError(null);
             setXrdBackendSaved(false);
+
+            // Phase X6B: Dispatch runtime processing start event
+            setProcessingStatus(true);
+            setActiveStage('baseline');
+
             const localReference = getXrdLocalReferencePayloadForBackend(backendSignalSource);
             debugXrdReprocessTrace('backend process call started', {
               xLength: backendSignalSource.x.length,
@@ -1442,7 +1474,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
               .then((normalized) => {
                 setXrdBackendResult(normalized);
                 setXrdBackendLoading(false);
-                saveXrdBackendEvidenceResult(
+                const savedRecord = saveXrdBackendEvidenceResult(
                   projectId ?? undefined,
                   routeContext.uploadedRunId ?? undefined,
                   normalized,
@@ -1455,6 +1487,11 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
                     `[backend] XRD backend processing complete — ${normalized.detectedPeakCount} peaks, S/N ${normalized.snRatio.toFixed(1)} (evidence saved for handoff)`,
                   ),
                 );
+
+                // Phase X6B: Dispatch saved evidence record to runtime context
+                updateRuntimeEvidence(savedRecord);
+                setActiveStage(null);
+                setProcessingStatus(false);
               })
               .catch((err) => {
                 const message = err instanceof XRDBackendError ? err.message : 'XRD backend unreachable';
@@ -1463,6 +1500,10 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
                 setSessionState((prev) =>
                   addLog(prev, `[backend] XRD backend call failed (non-blocking): ${message}`),
                 );
+
+                // Phase X6B: Dispatch runtime processing end on error
+                setActiveStage(null);
+                setProcessingStatus(false);
               });
           }
         } else {
@@ -3219,11 +3260,17 @@ function XRDParametersPanel({
     refreshLocalReferenceDrafts();
     if (approved?.approvalStatus === 'approved_for_local_matching') {
       setLocalReferenceSaveStatus('Local reference peak list approved for request-scoped backend matching. Toggle remains off until explicitly enabled.');
+
+      // Phase X6B: Dispatch 7E.4 validation approval
+      set7E4ValidationStatus(true);
       return;
     }
 
     onUseLocalReferenceForBackendChange(false);
     setLocalReferenceSaveStatus('Local reference draft could not be approved for matching. It remains preview-only.');
+
+    // Phase X6B: Dispatch 7E.4 validation rejection on failure
+    set7E4ValidationStatus(false);
   }
 
   function handleRejectLocalReferenceDraft(draftId: string) {
@@ -3233,6 +3280,9 @@ function XRDParametersPanel({
     setLocalReferenceSaveStatus(rejected
       ? 'Local reference draft rejected for backend matching and kept as preview-only.'
       : 'Saved local reference preview was not found.');
+
+    // Phase X6B: Dispatch 7E.4 validation rejection
+    set7E4ValidationStatus(false);
   }
 
   async function handleLocalReferenceFileChange(event: React.ChangeEvent<HTMLInputElement>) {
