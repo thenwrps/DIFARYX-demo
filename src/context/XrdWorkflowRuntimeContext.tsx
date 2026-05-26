@@ -220,6 +220,12 @@ export interface XrdWorkflowRuntimeActions {
 
   /** Dispatch state machine event */
   dispatchWorkflowEvent: (event: XrdWorkflowEvent) => void;
+
+  /** Publish current session */
+  publishSession: (versionTag: string) => void;
+
+  /** Revert live evidence to published snapshot */
+  revertToPublished: () => void;
 }
 
 /**
@@ -254,7 +260,27 @@ export interface XrdWorkflowRuntimeProviderProps {
  * XRD Workflow Runtime Context Provider.
  * Wraps application surfaces to provide centralized runtime state.
  */
+const XRD_ACTIVE_SESSION_DRAFT_KEY = 'difaryx_xrd_active_session_draft';
+
+function loadSessionDraft(): XrdWorkflowSession | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = window.sessionStorage.getItem(XRD_ACTIVE_SESSION_DRAFT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as XrdWorkflowSession;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * XRD Workflow Runtime Context Provider.
+ * Wraps application surfaces to provide centralized runtime state.
+ */
 export function XrdWorkflowRuntimeProvider({ children }: XrdWorkflowRuntimeProviderProps) {
+  // Load draft session from sessionStorage (Hydration First)
+  const draftSession = loadSessionDraft();
+
   // ── Hydrate initial state from sessionStorage on mount ───────────────
   const hydrationRef = useRef<ReturnType<typeof hydrateFromSession> | null>(null);
   if (hydrationRef.current === null) {
@@ -262,21 +288,88 @@ export function XrdWorkflowRuntimeProvider({ children }: XrdWorkflowRuntimeProvi
   }
   const hydrated = hydrationRef.current;
 
-  const [currentEvidence, setCurrentEvidence] = useState<XrdRuntimeEvidence>(
-    hydrated.evidence,
-  );
-  const [activeStage, setActiveStageState] = useState<XrdWorkflowStage>(null);
-  const [isValidated7E4, setIsValidated7E4] = useState(hydrated.isValidated7E4);
-  // Always hydrate isProcessing as false — a refresh must never resume a stuck spinner
-  const [isProcessing, setIsProcessing] = useState(false);
+  // Initialize operational variables prioritizing draftSession
+  const [currentEvidence, setCurrentEvidence] = useState<XrdRuntimeEvidence>(() => {
+    if (draftSession && draftSession.evidence) {
+      const nextEvidence = draftSession.evidence;
+      const qm = draftSession.processing?.qualityMetrics;
+      const pm = nextEvidence.phaseMatch;
+      
+      const tempEvidenceRecordForHandoff: XRDBackendEvidenceRecord = {
+        projectId: draftSession.projectId || '__unassigned__',
+        uploadedRunId: draftSession.datasetContext?.referenceSetId,
+        fileName: undefined,
+        timestamp: draftSession.createdAt,
+        detectedPeakCount: qm?.detectedPeakCount ?? 0,
+        fittedPeakCount: qm?.fittedPeakCount ?? 0,
+        snRatio: qm?.snRatio ?? 0,
+        baselineDeviation: qm?.baselineDeviation ?? 0,
+        peakResolution: qm?.peakResolution || 'screening-grade',
+        primaryPhase: pm?.primaryPhase ?? null,
+        matchedPeakCount: pm?.matchedPeakCount ?? 0,
+        phaseSummary: pm?.phaseSummary ?? null,
+        isPhaseMatched: pm?.isPhaseMatched ?? false,
+        yResidualCount: 0,
+        workflowScientificEvidence: nextEvidence.scientificEvidence,
+        workflowReferenceMatchEvidence: nextEvidence.referenceMatch,
+        datasetContextEcho: undefined,
+        processingProvenance: draftSession.processing?.provenance,
+      };
+
+      const handoffState = buildXrdWorkflowSession({
+        sessionId: draftSession.sessionId,
+        isProcessing: draftSession.runtime.status === 'processing',
+        activeStage: draftSession.runtime.activeStage,
+        isValidated7E4: draftSession.validation?.isValidated7E4 ?? false,
+        evidenceRecord: tempEvidenceRecordForHandoff,
+      }).xrdWorkflowHandoffState;
+
+      return {
+        ...tempEvidenceRecordForHandoff,
+        xrdWorkflowHandoffState: handoffState,
+      };
+    }
+    return hydrated.evidence;
+  });
+
+  const [activeStage, setActiveStageState] = useState<XrdWorkflowStage>(() => {
+    if (draftSession && draftSession.runtime.activeStage) {
+      switch (draftSession.runtime.activeStage) {
+        case 'baseline': return 'baseline';
+        case 'smoothing': return 'smooth';
+        case 'peak_detection': return 'peak_detect';
+        case 'fitting': return 'fit_peaks';
+        case 'reference_matching': return 'match_ref';
+        case 'handoff': return 'boundary';
+      }
+    }
+    return null;
+  });
+
+  const [isValidated7E4, setIsValidated7E4] = useState(() => {
+    if (draftSession && draftSession.validation) {
+      return draftSession.validation.isValidated7E4;
+    }
+    return hydrated.isValidated7E4;
+  });
+
+  const [isProcessing, setIsProcessing] = useState(() => {
+    if (draftSession && draftSession.runtime.status) {
+      return draftSession.runtime.status === 'processing';
+    }
+    return false;
+  });
+
   const [sessionResetNotification, setSessionResetNotification] = useState<string | null>(
     hydrated.resetNotification,
   );
 
   // Canonical Session State (Shadow Layer)
-  const [currentSession, setCurrentSession] = useState<XrdWorkflowSession | null>(null);
+  const [currentSession, setCurrentSession] = useState<XrdWorkflowSession | null>(
+    draftSession,
+  );
 
-  // Synchronize currentSession on mount or when currentEvidence hydrates
+  // Synchronize currentSession when currentEvidence changes
   useEffect(() => {
     if (currentEvidence) {
       setCurrentSession((prev) => {
@@ -296,9 +389,24 @@ export function XrdWorkflowRuntimeProvider({ children }: XrdWorkflowRuntimeProvi
         });
       });
     } else {
-      setCurrentSession(null);
+      setCurrentSession((prev) => {
+        if (prev && prev.contract.migratedFromLegacy === false) {
+          return prev;
+        }
+        return null;
+      });
     }
   }, [currentEvidence]);
+
+  // Save currentSession to sessionStorage draft continuously
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (currentSession) {
+      window.sessionStorage.setItem(XRD_ACTIVE_SESSION_DRAFT_KEY, JSON.stringify(currentSession));
+    } else {
+      window.sessionStorage.removeItem(XRD_ACTIVE_SESSION_DRAFT_KEY);
+    }
+  }, [currentSession]);
 
   // ── State Transition Dispatcher with Controlled Shadow Sync ──────────
   const dispatchWorkflowEvent = useCallback((event: XrdWorkflowEvent) => {
@@ -315,7 +423,7 @@ export function XrdWorkflowRuntimeProvider({ children }: XrdWorkflowRuntimeProvi
       const nextSession = xrdSessionReducer(activeSession, event);
 
       // 3. Strict Transition Priority Check:
-      // If reducer rejected transition (returned identical state), do not update legacy flags
+      // If reducer rejected transition, do not update legacy flags
       if (nextSession === activeSession) {
         return prevSession;
       }
@@ -544,6 +652,14 @@ export function XrdWorkflowRuntimeProvider({ children }: XrdWorkflowRuntimeProvi
     setSessionResetNotification(null);
   }, []);
 
+  const publishSession = useCallback((versionTag: string) => {
+    dispatchWorkflowEvent({ type: 'PUBLISH_SESSION', payload: { versionTag } });
+  }, [dispatchWorkflowEvent]);
+
+  const revertToPublished = useCallback(() => {
+    dispatchWorkflowEvent({ type: 'REVERT_TO_PUBLISHED' });
+  }, [dispatchWorkflowEvent]);
+
   const contextValue: XrdWorkflowRuntimeContextValue = {
     // State
     currentEvidence,
@@ -562,6 +678,8 @@ export function XrdWorkflowRuntimeProvider({ children }: XrdWorkflowRuntimeProvi
     resetRuntimeState,
     dismissSessionResetNotification,
     dispatchWorkflowEvent,
+    publishSession,
+    revertToPublished,
   };
 
   return (

@@ -283,6 +283,54 @@ export function xrdSessionReducer(
       };
     }
 
+    case 'PUBLISH_SESSION': {
+      if (!state.evidence) {
+        console.warn('[XrdWorkflowSession Reducer] Cannot publish session: No evidence to snapshot.');
+        return state;
+      }
+
+      return {
+        ...state,
+        updatedAt: now,
+        publication: state.publication
+          ? {
+              ...state.publication,
+              published: true,
+              publishedAt: now,
+            }
+          : {
+              published: true,
+              publishedAt: now,
+              notebookReady: true,
+              reportReady: true,
+              agentReady: true,
+            },
+        publishedSnapshot: {
+          versionTag: event.payload.versionTag,
+          publishedAt: now,
+          evidenceSnapshot: JSON.parse(JSON.stringify(state.evidence)),
+        },
+      };
+    }
+
+    case 'REVERT_TO_PUBLISHED': {
+      if (!state.publishedSnapshot) {
+        console.warn('[XrdWorkflowSession Reducer] Blocked REVERT_TO_PUBLISHED: No published snapshot exists.');
+        return state;
+      }
+
+      return {
+        ...state,
+        updatedAt: now,
+        evidence: JSON.parse(JSON.stringify(state.publishedSnapshot.evidenceSnapshot)),
+        runtime: {
+          ...state.runtime,
+          status: 'completed',
+          errorMessage: undefined,
+        },
+      };
+    }
+
     default:
       return state;
   }

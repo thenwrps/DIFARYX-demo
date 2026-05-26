@@ -16,6 +16,11 @@ export interface XrdWorkflowSession {
   publication?: XrdWorkflowPublicationState;
   scientificBoundaries: XrdWorkflowScientificBoundaries;
   contract: XrdWorkflowContractMetadata;
+  publishedSnapshot?: {
+    versionTag: string;
+    publishedAt: string;
+    evidenceSnapshot: any; // รองรับก้อน state.evidence
+  };
 }
 
 export interface XrdWorkflowRuntimeState {
@@ -101,6 +106,8 @@ export type XrdWorkflowEvent =
   | { type: 'SET_VALIDATION'; payload: { isValidated7E4: boolean } }
   | { type: 'APPEND_SCIENTIFIC_EVIDENCE'; payload: { scientificData: any } }
   | { type: 'APPEND_REFERENCE_MATCH'; payload: { referenceData: any; phaseSummary: any } }
-  | { type: 'SET_VALIDATION_GAPS'; payload: { gaps: string[] } };
+  | { type: 'SET_VALIDATION_GAPS'; payload: { gaps: string[] } }
+  | { type: 'PUBLISH_SESSION'; payload: { versionTag: string } }
+  | { type: 'REVERT_TO_PUBLISHED' };
 
 
