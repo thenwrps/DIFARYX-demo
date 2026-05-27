@@ -43,6 +43,9 @@ export default function AuthCallback() {
           return;
         }
 
+        // Store captured OAuth access token for useX7UniversalHook
+        localStorage.setItem("difaryx_google_user_token", accessToken);
+
         console.log("[AuthCallback] Fetching user profile from Google");
         
         const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
@@ -78,8 +81,8 @@ export default function AuthCallback() {
 
         console.log("[AuthCallback] User signed in successfully");
         
-        // Get the intended destination from sessionStorage, default to /dashboard
-        const redirectTo = sessionStorage.getItem("auth_redirect_to") || "/dashboard";
+        // Redirect seamlessly to /settings as requested
+        const redirectTo = "/settings";
         sessionStorage.removeItem("auth_redirect_to");
         
         console.log("[AuthCallback] Redirecting to:", redirectTo);

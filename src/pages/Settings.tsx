@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Bot, Database, Download, Link2, User } from 'lucide-react';
 import { DashboardLayout } from '../components/layout/DashboardLayout';
@@ -57,38 +57,17 @@ export default function SettingsPage() {
     connectGmail, 
     disconnectGmail, 
     uploadToDrive, 
-    scanGmail 
+    scanGmail,
+    connectedEmail,
+    brightDataError
   } = useX7UniversalHook();
 
   // Local state for API status, spinners, and inline alerts
   const [apiError, setApiError] = useState<string | null>(null);
   const [apiSuccess, setApiSuccess] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [googleEmail, setGoogleEmail] = useState<string>('difaryxlab@gmail.com');
 
-  // Load Google User Info email dynamically via OAuth token if connected
-  useEffect(() => {
-    const token = localStorage.getItem('difaryx_google_user_token');
-    if (token) {
-      fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      .then(res => {
-        if (res.ok) return res.json();
-        throw new Error('Failed to fetch profile');
-      })
-      .then(data => {
-        if (data.email) {
-          setGoogleEmail(data.email);
-        }
-      })
-      .catch(err => {
-        console.warn('Failed to load Google user info from OAuth profile:', err);
-        // Fallback to the requested test identity
-        setGoogleEmail('difaryxlab@gmail.com');
-      });
-    }
-  }, [gmailConnected]);
+  const googleEmail = connectedEmail;
 
   const effectiveWorkspaceMode = getEffectiveWorkspaceMode({
     authUser: user,
@@ -150,7 +129,6 @@ Payload details: ${firstEmail?.body || 'No description'}`;
       );
     } catch (err: any) {
       console.error('[Settings Page API Error]', err);
-      // Hard Lock exception is captured and rendered inline
       setApiError(err.message || String(err));
     } finally {
       setIsLoading(false);
@@ -249,6 +227,11 @@ Payload details: ${firstEmail?.body || 'No description'}`;
             {apiError && (
               <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-800 leading-snug">
                 🚨 {apiError}
+              </div>
+            )}
+            {brightDataError && (
+              <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-800 leading-snug">
+                🚨 {brightDataError}
               </div>
             )}
             {apiSuccess && (

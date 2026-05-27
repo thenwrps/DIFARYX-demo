@@ -83,6 +83,7 @@ export interface UseX7UniversalHookResult {
   connectGmail: () => void;
   disconnectGmail: () => void;
   scanGmail: (query?: string) => Promise<GmailEmailResult[]>;
+  connectedEmail: string;
 
   // External Intelligence Hook
   searchScholar: (query: string) => Promise<ScholarReference[]>;
@@ -90,6 +91,8 @@ export interface UseX7UniversalHookResult {
     experiment: { wavelength: number; material: string; temperature: number },
     reference: { wavelength: number; material: string; temperature: number }
   ) => ReliabilityReport;
+  brightDataError: string | null;
+  clearBrightDataError: () => void;
 
   // Vertex AI Intelligence
   analyzeWithVertexAI: (payload: any) => Promise<any>;
@@ -142,8 +145,11 @@ export function computeDeterministicHash(obj: any): string {
  * and triggers immediate execution locks via explicit error throws.
  */
 export function handleApiResponseError(responseStatus: number, serviceName: string): void {
-  if (responseStatus === 401) {
+  if (responseStatus === 401 || responseStatus === 403 || responseStatus === 429) {
     localStorage.removeItem('difaryx_google_user_token');
+  }
+
+  if (responseStatus === 401) {
     throw new Error(
       `SaaS Hard Lock Exception [HTTP 401]: Google OAuth Access Token has expired or is unauthorized for service [${serviceName}]. Please sign in or re-authenticate to restore connectivity.`
     );
@@ -346,6 +352,36 @@ export function useX7UniversalHook(): UseX7UniversalHookResult {
     return [];
   });
 
+  // 5. Dynamic Profile State and Error handlers
+  const [connectedEmail, setConnectedEmail] = useState<string>('nwrps.yingyuen@gmail.com');
+  const [brightDataError, setBrightDataError] = useState<string | null>(null);
+  const clearBrightDataError = () => setBrightDataError(null);
+
+  // Synchronize Google Profile email dynamically via OAuth token if connected
+  useEffect(() => {
+    const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
+    if (token) {
+      fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      .then(res => {
+        if (res.ok) return res.json();
+        throw new Error('Failed to fetch profile');
+      })
+      .then(data => {
+        if (data.email) {
+          setConnectedEmail(data.email);
+        }
+      })
+      .catch(err => {
+        console.warn('Failed to load Google user info:', err);
+        setConnectedEmail('nwrps.yingyuen@gmail.com'); // default fallback
+      });
+    } else {
+      setConnectedEmail('nwrps.yingyuen@gmail.com');
+    }
+  }, [gmailConnected]);
+
   // URL Hash Listener for OAuth Implicit Flow Token Capture
   useEffect(() => {
     if (window.location.hash) {
@@ -452,7 +488,7 @@ export function useX7UniversalHook(): UseX7UniversalHookResult {
       throw new Error('OAuth Redirect Failed: Client ID not configured.');
     }
 
-    const redirectUri = window.location.origin + window.location.pathname;
+    const redirectUri = window.location.origin + '/auth/callback'; // Always dynamic redirect URI matching client config
     const scopes = [
       'https://www.googleapis.com/auth/gmail.readonly',
       'https://www.googleapis.com/auth/drive.file',
@@ -541,6 +577,7 @@ export function useX7UniversalHook(): UseX7UniversalHookResult {
       return { id: fileId, url };
     } catch (err: any) {
       if (err.message.includes('SaaS Hard Lock')) {
+        setGmailConnected(false);
         throw err;
       }
       throw new Error(`Google Drive API Upload Error: ${err.message || err}`);
@@ -635,6 +672,7 @@ export function useX7UniversalHook(): UseX7UniversalHookResult {
       return fetchedResults;
     } catch (err: any) {
       if (err.message.includes('SaaS Hard Lock')) {
+        setGmailConnected(false);
         throw err;
       }
       console.warn(
@@ -649,20 +687,25 @@ export function useX7UniversalHook(): UseX7UniversalHookResult {
   // External Intelligence & Google Scholar (Bright Data)
   // ==========================================================================
 
+  /**
+   * Google Scholar search via Bright Data SERP API.
+   * Utilizes serp_api1 zone name and handles fallbacks gracefully to ensure
+   * Bragg's Law comparisons remain active in the demo.
+   */
   const searchScholar = async (query: string): Promise<ScholarReference[]> => {
-    reportUsageToStripe('bright-data', 1);
-
     const apiKey = import.meta.env.VITE_BRIGHTDATA_API_KEY;
     if (!apiKey) {
       console.warn(
         '[Bright Data SERP] API key not configured in environment. Using local reference database.'
       );
-      // Brief network simulation delay
       await new Promise((resolve) => setTimeout(resolve, 800));
       return getLocalScholarRefs(query);
     }
 
     try {
+      // Quota check & report is wrapped inside the try block to avoid uncaught SaaS crashes
+      reportUsageToStripe('bright-data', 1);
+
       const response = await fetch('https://api.brightdata.com/serp/req', {
         method: 'POST',
         headers: {
@@ -670,12 +713,16 @@ export function useX7UniversalHook(): UseX7UniversalHookResult {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          zone: 'serp',
+          zone: 'serp_api1', // Correct zone name matching the user's active configuration
           url: `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}`,
         }),
       });
 
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403 || response.status === 429) {
+          const errorMsg = `SaaS Hard Lock Alert: Bright Data SERP API returned HTTP ${response.status} (Quota Exceeded/Unauthorized). Scholar searches locked. Falling back to local reference database.`;
+          setBrightDataError(errorMsg);
+        }
         handleApiResponseError(response.status, 'Bright Data SERP API');
       }
 
@@ -700,13 +747,18 @@ export function useX7UniversalHook(): UseX7UniversalHookResult {
         },
       }));
     } catch (err: any) {
-      if (err.message.includes('SaaS Hard Lock')) {
-        throw err;
-      }
       console.warn(
-        '[Bright Data SERP] Failed to fetch. Falling back to local references.',
+        '[Bright Data SERP] Failed to fetch. Falling back to local references dataset.',
         err
       );
+      
+      // Capture quota limit error or SaaS Hard Lock error and set it for the Settings screen alert
+      if (err.message && (err.message.includes('SaaS Hard Lock') || err.message.includes('SaaS Quota') || err.message.includes('Subscription'))) {
+        setBrightDataError(err.message);
+      } else {
+        setBrightDataError(`Bright Data Connectivity Warning: ${err.message || String(err)}`);
+      }
+      
       return getLocalScholarRefs(query);
     }
   };
@@ -867,6 +919,7 @@ Identify any phase match candidates, XRD diffraction parameters, thermal states,
       return result;
     } catch (err: any) {
       if (err.message.includes('SaaS Hard Lock')) {
+        setGmailConnected(false);
         throw err;
       }
       throw new Error(`Vertex AI API Request Failure: ${err.message || err}`);
@@ -947,9 +1000,12 @@ Identify any phase match candidates, XRD diffraction parameters, thermal states,
     connectGmail,
     disconnectGmail,
     scanGmail,
+    connectedEmail,
 
     searchScholar,
     compareContext,
+    brightDataError,
+    clearBrightDataError,
 
     analyzeWithVertexAI,
 
