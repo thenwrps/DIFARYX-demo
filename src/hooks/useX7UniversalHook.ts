@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { UNIVERSAL_SPECTRAL_LIBRARY } from '../constants/spectralLibrary';
+import { UNIVERSAL_MASTER_LIBRARY } from '../constants/universalKnowledgeBase';
 
 // ============================================================================
 // Core Interfaces & Types
@@ -119,6 +120,11 @@ export interface UseX7UniversalHookResult {
   identifyFunctionalGroups: (
     peaks: any[],
     technique: 'FTIR' | 'RAMAN'
+  ) => PeakAssignmentResult[];
+  identifyMaterialFeatures: (
+    peaks: any[],
+    technique: 'XRD' | 'FTIR' | 'RAMAN',
+    industryFilter: string
   ) => PeakAssignmentResult[];
 }
 
@@ -326,7 +332,9 @@ export function generateMockFtirFileContent(): string {
     y += 0.08 * Math.exp(-Math.pow((x - 1625) / 45, 2));
     // noise
     const noise = Math.sin(x * 12.3) * 0.002 + Math.cos(x * 7.7) * 0.001;
-    y += noise;
+    // 0.5% White noise
+    const whiteNoise = (Math.sin(x * 98.7) * Math.cos(x * 123.45)) * 0.005 * 1.35;
+    y += noise + whiteNoise;
     points.push(`${x},${y.toFixed(4)}`);
   }
   return `Wavenumber (cm-1), Absorbance\n` + points.join('\n');
@@ -341,7 +349,7 @@ export function generateMockRamanFileContent(): string {
     y += 55 * Math.exp(-Math.pow((x - 565) / 18, 2));  // Supporting
     y += 70 * Math.exp(-Math.pow((x - 480) / 12, 2));  // Supporting
     y += 45 * Math.exp(-Math.pow((x - 335) / 20, 2));  // Supporting
-    
+
     // Carbon residue modes
     y += 40 * Math.exp(-Math.pow((x - 1352) / 35, 2)); // D-band
     y += 50 * Math.exp(-Math.pow((x - 1585) / 25, 2)); // G-band
@@ -353,7 +361,9 @@ export function generateMockRamanFileContent(): string {
 
     // noise
     const noise = Math.sin(x * 5.5) * 0.5 + Math.cos(x * 13.1) * 0.3;
-    y += noise;
+    // 0.5% White noise
+    const whiteNoise = (Math.sin(x * 98.7) * Math.cos(x * 123.45)) * 0.005 * 211;
+    y += noise + whiteNoise;
     points.push(`${x},${y.toFixed(2)}`);
   }
   return `Raman Shift (cm-1), Intensity\n` + points.join('\n');
@@ -376,11 +386,11 @@ function solveLinearSystem(A: number[][], B: number[]): number[] {
     const tempB = B[maxRow];
     B[maxRow] = B[i];
     B[i] = tempB;
-    
+
     if (Math.abs(A[i][i]) < 1e-12) {
       return new Array(n).fill(0);
     }
-    
+
     for (let k = i + 1; k < n; k++) {
       const c = -A[k][i] / A[i][i];
       for (let j = i; j < n; j++) {
@@ -393,7 +403,7 @@ function solveLinearSystem(A: number[][], B: number[]): number[] {
       B[k] += c * B[i];
     }
   }
-  
+
   const x = new Array(n).fill(0);
   for (let i = n - 1; i >= 0; i--) {
     let sum = B[i];
@@ -410,17 +420,17 @@ function fitPolynomial(points: Array<{ x: number; y: number }>, degree: number):
   const m = degree + 1;
   const X: number[][] = Array.from({ length: m }, () => new Array(m).fill(0));
   const B: number[] = new Array(m).fill(0);
-  
+
   for (let i = 0; i < n; i++) {
     const px = points[i].x;
     const py = points[i].y;
-    
+
     const powers = new Array(2 * degree + 1);
     powers[0] = 1;
     for (let k = 1; k <= 2 * degree; k++) {
       powers[k] = powers[k-1] * px;
     }
-    
+
     for (let row = 0; row < m; row++) {
       for (let col = 0; col < m; col++) {
         X[row][col] += powers[row + col];
@@ -428,77 +438,77 @@ function fitPolynomial(points: Array<{ x: number; y: number }>, degree: number):
       B[row] += py * (row === 0 ? 1 : powers[row]);
     }
   }
-  
+
   return solveLinearSystem(X, B);
 }
 
 function rubberbandBaseline(points: Array<{ x: number; y: number }>): number[] {
   const n = points.length;
-  if (n < 2) return points.map(p => p.y);
-  
+  if (n < 2) return points.map(p => Math.max(0, p.y));
+
   const pivots: number[] = [0, n - 1];
-  
+
   function addPivots(start: number, end: number) {
     if (end - start <= 1) return;
-    
+
     const xStart = points[start].x;
     const yStart = points[start].y;
     const xEnd = points[end].x;
     const yEnd = points[end].y;
-    
+
     let maxDist = 0;
     let pivotIndex = -1;
-    
+
     for (let i = start + 1; i < end; i++) {
       const xVal = points[i].x;
       const yVal = points[i].y;
-      
+
       const t = (xVal - xStart) / (xEnd - xStart);
       const yInterp = yStart + t * (yEnd - yStart);
-      
+
       const dist = yInterp - yVal;
       if (dist > maxDist && dist > 1e-6) {
         maxDist = dist;
         pivotIndex = i;
       }
     }
-    
+
     if (pivotIndex !== -1) {
       pivots.push(pivotIndex);
       pivots.sort((a, b) => a - b);
-      
+
       const idx = pivots.indexOf(pivotIndex);
       addPivots(pivots[idx - 1], pivotIndex);
       addPivots(pivotIndex, pivots[idx + 1]);
     }
   }
-  
+
   addPivots(0, n - 1);
-  
+
   const baseline = new Array(n);
   for (let j = 0; j < pivots.length - 1; j++) {
     const startIdx = pivots[j];
     const endIdx = pivots[j + 1];
-    
+
     const xStart = points[startIdx].x;
     const yStart = points[startIdx].y;
     const xEnd = points[endIdx].x;
     const yEnd = points[endIdx].y;
-    
+
     for (let i = startIdx; i <= endIdx; i++) {
       const t = (points[i].x - xStart) / (xEnd - xStart);
-      baseline[i] = yStart + t * (yEnd - yStart);
+      baseline[i] = Math.max(0, yStart + t * (yEnd - yStart));
     }
   }
   return baseline;
 }
 
-function alsBaseline(points: Array<{ x: number; y: number }>, lam = 1e5, p = 0.01, iters = 10): number[] {
+function alsBaseline(points: Array<{ x: number; y: number }>, lam = 1e7, p = 0.01, iters = 10): number[] {
   const n = points.length;
   const y = points.map(pt => pt.y);
   const z = [...y];
   const w = new Array(n).fill(1.0);
-  
+
   const H: number[][] = Array.from({ length: n }, () => []);
   for (let i = 0; i < n; i++) {
     H[i] = new Array(n).fill(0);
@@ -508,12 +518,12 @@ function alsBaseline(points: Array<{ x: number; y: number }>, lam = 1e5, p = 0.0
     H[i+1][i] += -2; H[i+1][i+1] += 4; H[i+1][i+2] += -2;
     H[i+2][i] += 1; H[i+2][i+1] += -2; H[i+2][i+2] += 1;
   }
-  
+
   for (let it = 0; it < iters; it++) {
     for (let i = 0; i < n; i++) {
       w[i] = y[i] > z[i] ? p : 1 - p;
     }
-    
+
     for (let gs = 0; gs < 15; gs++) {
       for (let i = 0; i < n; i++) {
         let sum = w[i] * y[i];
@@ -523,7 +533,7 @@ function alsBaseline(points: Array<{ x: number; y: number }>, lam = 1e5, p = 0.0
             sum -= lam * H[i][j] * z[j];
           }
         }
-        z[i] = sum / diag;
+        z[i] = Math.max(0, sum / diag);
       }
     }
   }
@@ -533,7 +543,7 @@ function alsBaseline(points: Array<{ x: number; y: number }>, lam = 1e5, p = 0.0
 function rollingBallBaseline(points: Array<{ x: number; y: number }>, windowSize = 80): number[] {
   const n = points.length;
   const y = points.map(p => p.y);
-  
+
   const half = Math.floor(windowSize / 2);
   const eroded = new Array(n);
   for (let i = 0; i < n; i++) {
@@ -545,9 +555,9 @@ function rollingBallBaseline(points: Array<{ x: number; y: number }>, windowSize
         minVal = y[j];
       }
     }
-    eroded[i] = minVal;
+    eroded[i] = Math.max(0, minVal);
   }
-  
+
   const baseline = new Array(n);
   for (let i = 0; i < n; i++) {
     let maxVal = -Infinity;
@@ -558,9 +568,9 @@ function rollingBallBaseline(points: Array<{ x: number; y: number }>, windowSize
         maxVal = eroded[j];
       }
     }
-    baseline[i] = maxVal;
+    baseline[i] = Math.max(0, maxVal);
   }
-  
+
   const smoothedBaseline = new Array(n);
   for (let i = 0; i < n; i++) {
     let sum = 0;
@@ -571,9 +581,9 @@ function rollingBallBaseline(points: Array<{ x: number; y: number }>, windowSize
       sum += baseline[j];
       count++;
     }
-    smoothedBaseline[i] = sum / count;
+    smoothedBaseline[i] = Math.max(0, sum / count);
   }
-  
+
   return smoothedBaseline;
 }
 
@@ -581,7 +591,7 @@ function savitzkyGolayCoefficients(windowSize: number, degree: number): number[]
   const m = Math.floor(windowSize / 2);
   const n = windowSize;
   const d = degree;
-  
+
   const J: number[][] = Array.from({ length: n }, () => new Array(d + 1).fill(0));
   for (let i = 0; i < n; i++) {
     const xVal = i - m;
@@ -591,7 +601,7 @@ function savitzkyGolayCoefficients(windowSize: number, degree: number): number[]
       power *= xVal;
     }
   }
-  
+
   const JT_J: number[][] = Array.from({ length: d + 1 }, () => new Array(d + 1).fill(0));
   for (let r = 0; r <= d; r++) {
     for (let c = 0; c <= d; c++) {
@@ -602,13 +612,13 @@ function savitzkyGolayCoefficients(windowSize: number, degree: number): number[]
       JT_J[r][c] = sum;
     }
   }
-  
+
   const identity: number[][] = Array.from({ length: d + 1 }, (_, i) => {
     const row = new Array(d + 1).fill(0);
     row[i] = 1;
     return row;
   });
-  
+
   const JT_J_inv: number[][] = Array.from({ length: d + 1 }, () => new Array(d + 1).fill(0));
   for (let col = 0; col <= d; col++) {
     const A_copy = JT_J.map(row => [...row]);
@@ -618,7 +628,7 @@ function savitzkyGolayCoefficients(windowSize: number, degree: number): number[]
       JT_J_inv[r][col] = sol[r];
     }
   }
-  
+
   const coeffs = new Array(n);
   for (let i = 0; i < n; i++) {
     let sum = 0;
@@ -627,7 +637,7 @@ function savitzkyGolayCoefficients(windowSize: number, degree: number): number[]
     }
     coeffs[i] = sum;
   }
-  
+
   return coeffs;
 }
 
@@ -740,7 +750,7 @@ export function useX7UniversalHook(): UseX7UniversalHookResult {
         localStorage.setItem(STORAGE_KEYS.TOKEN, accessToken);
         setGmailConnected(true);
         console.log('[OAuth 2.0 Flow] Access Token captured and stored successfully.');
-        
+
         // Remove hash from URL to keep address bar clean
         window.history.replaceState(null, '', window.location.pathname + window.location.search);
       }
@@ -798,9 +808,9 @@ export function useX7UniversalHook(): UseX7UniversalHookResult {
     setQuotaState((prev) => {
       const nextUsage = { ...prev.usage };
       nextUsage[service] = (nextUsage[service] || 0) + amount;
-      
+
       console.log(`[Stripe Telemetry] Reported ${amount} units for ${service}. New total: ${nextUsage[service]}`);
-      
+
       return {
         ...prev,
         usage: nextUsage,
@@ -1056,7 +1066,7 @@ export function useX7UniversalHook(): UseX7UniversalHookResult {
       bodyText,
     ];
     const message = messageParts.join('\r\n');
-    
+
     // Base64url encode the message
     const encodedMessage = btoa(unescape(encodeURIComponent(message)))
       .replace(/\+/g, '-')
@@ -1105,7 +1115,7 @@ export function useX7UniversalHook(): UseX7UniversalHookResult {
 
     const folderId = import.meta.env.VITE_GDRIVE_FOLDER_ID;
     const query = folderId ? `q='${folderId}'+in+parents` : '';
-    
+
     try {
       const response = await fetch(
         `https://www.googleapis.com/drive/v3/files?${query}`,
@@ -1269,14 +1279,14 @@ export function useX7UniversalHook(): UseX7UniversalHookResult {
         '[Bright Data SERP] Failed to fetch. Falling back to local references dataset.',
         err
       );
-      
+
       // Capture quota limit error or SaaS Hard Lock error and set it for the Settings screen alert
       if (err.message && (err.message.includes('SaaS Hard Lock') || err.message.includes('SaaS Quota') || err.message.includes('Subscription'))) {
         setBrightDataError(err.message);
       } else {
         setBrightDataError(`Bright Data Connectivity Warning: ${err.message || String(err)}`);
       }
-      
+
       return getLocalScholarRefs(query);
     }
   };
@@ -1295,7 +1305,7 @@ export function useX7UniversalHook(): UseX7UniversalHookResult {
     // 1. Wavelength Match (50% weight)
     let wavelengthScore = 0;
     const wavelengthDiff = Math.abs(experiment.wavelength - reference.wavelength);
-    
+
     if (wavelengthDiff < 0.0001) {
       wavelengthScore = 50;
       details.push(
@@ -1404,7 +1414,7 @@ export function useX7UniversalHook(): UseX7UniversalHookResult {
           parts: [
             {
               text: `You are DIFARYX, an autonomous scientific reasoning engine. Perform a deep structural analysis and characterize this research payload:
-              
+
 ${JSON.stringify(payload, null, 2)}
 
 Identify any phase match candidates, XRD diffraction parameters, thermal states, and output a structured scientific assessment.`,
@@ -1444,6 +1454,34 @@ Identify any phase match candidates, XRD diffraction parameters, thermal states,
     }
   };
 
+  const saveSnapshot = (
+    state: any,
+    provenance: { instrumentFingerprint: string; softwareVersion: string }
+  ): ImmutableResearchSnapshot => {
+    const id = `snap-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const timestamp = new Date().toISOString();
+    const hash = computeDeterministicHash(state);
+    const newSnapshot: ImmutableResearchSnapshot = {
+      id,
+      timestamp,
+      hash,
+      state,
+      provenance,
+    };
+    setSnapshots((prev) => [...prev, newSnapshot]);
+    return newSnapshot;
+  };
+
+  const verifySnapshot = (id: string, currentState: any): boolean => {
+    const found = snapshots.find(s => s.id === id);
+    if (!found) return false;
+    return found.hash === computeDeterministicHash(currentState);
+  };
+
+  const clearSnapshots = () => {
+    setSnapshots([]);
+  };
+
   return {
     hasPremiumAccess,
     quotaState,
@@ -1481,6 +1519,7 @@ Identify any phase match candidates, XRD diffraction parameters, thermal states,
     applyNormalization,
     removeCosmicRays,
     identifyFunctionalGroups,
+    identifyMaterialFeatures,
   };
 }
 
@@ -1513,7 +1552,7 @@ export function applyBaseline(
   method: 'Rubberband' | 'ALS' | 'Polynomial' | 'Rolling Ball'
 ): Array<{ x: number; y: number }> {
   if (data.length === 0) return [];
-  
+
   let baseline: number[];
   if (method === 'Rubberband') {
     baseline = rubberbandBaseline(data);
@@ -1530,7 +1569,7 @@ export function applyBaseline(
       x: (p.x - xMin) / xSpan * 2 - 1,
       y: p.y
     }));
-    
+
     let currentPoints = normPoints.map(p => ({ ...p }));
     let coeffs = new Array(4).fill(0);
     for (let iter = 0; iter < 10; iter++) {
@@ -1542,7 +1581,7 @@ export function applyBaseline(
         }
         return {
           x: p.x,
-          y: Math.min(p.y, polyVal)
+          y: Math.max(0, Math.min(p.y, polyVal))
         };
       });
     }
@@ -1552,10 +1591,10 @@ export function applyBaseline(
       for (let d = 0; d < coeffs.length; d++) {
         val += coeffs[d] * Math.pow(xn, d);
       }
-      return val;
+      return Math.max(0, val);
     });
   }
-  
+
   return data.map((p, i) => ({
     x: p.x,
     y: Math.max(0, p.y - baseline[i])
@@ -1569,15 +1608,15 @@ export function applySmoothing(
   const n = data.length;
   if (n === 0) return [];
   if (n < 5) return data.map(p => ({ ...p }));
-  
+
   const result = data.map(p => ({ ...p }));
   const windowSize = 9;
   const degree = 3;
-  
+
   if (method === 'Savitzky-Golay') {
     const coeffs = savitzkyGolayCoefficients(windowSize, degree);
     const m = Math.floor(windowSize / 2);
-    
+
     for (let i = 0; i < n; i++) {
       let sum = 0;
       for (let k = 0; k < windowSize; k++) {
@@ -1606,7 +1645,7 @@ export function applySmoothing(
       result[i].y = sum / count;
     }
   }
-  
+
   return result;
 }
 
@@ -1615,11 +1654,11 @@ export function applyNormalization(
   method: 'Min-max' | 'Area' | 'Vector'
 ): Array<{ x: number; y: number }> {
   if (data.length === 0) return [];
-  
+
   const yVals = data.map(p => p.y);
   const min = Math.min(...yVals);
   const max = Math.max(...yVals);
-  
+
   if (method === 'Min-max') {
     const range = max - min || 1;
     return data.map(p => ({
@@ -1646,28 +1685,28 @@ export function applyNormalization(
       y: p.y / norm
     }));
   }
-  
+
   return data.map(p => ({ ...p }));
 }
 
 export function removeCosmicRays(data: Array<{ x: number; y: number }>): Array<{ x: number; y: number }> {
   if (data.length < 5) return data.map(p => ({ ...p }));
-  
+
   const result = data.map(p => ({ ...p }));
   const n = data.length;
-  
+
   for (let i = 2; i < n - 2; i++) {
     const window = [data[i-2].y, data[i-1].y, data[i].y, data[i+1].y, data[i+2].y];
     const sorted = [...window].sort((a, b) => a - b);
     const median = sorted[2];
-    
+
     const windowNoCenter = [data[i-2].y, data[i-1].y, data[i+1].y, data[i+2].y];
     const sortedNoCenter = [...windowNoCenter].sort((a, b) => a - b);
     const medianNoCenter = (sortedNoCenter[1] + sortedNoCenter[2]) / 2;
     const mad = windowNoCenter.reduce((acc, val) => acc + Math.abs(val - medianNoCenter), 0) / 4;
-    
+
     const threshold = Math.max(5 * mad, 5.0);
-    
+
     if (data[i].y - median > threshold) {
       result[i].y = median;
     }
@@ -1707,6 +1746,125 @@ export function identifyFunctionalGroups(
         assignment: bestMatch.assignment,
         confidence: confidence,
         details: bestMatch.description
+      });
+    }
+  }
+
+  return results;
+}
+
+export function identifyMaterialFeatures(
+  peaks: any[],
+  technique: 'XRD' | 'FTIR' | 'RAMAN',
+  industryFilter: string
+): PeakAssignmentResult[] {
+  let normalizedIndustry: 'Pharma' | 'Polymers' | 'Advanced Energy' | 'Minerals/Catalysts' | 'All' = 'All';
+  const filterLower = (industryFilter || '').toLowerCase();
+
+  if (filterLower.includes('ยา') || filterLower.includes('pharma')) {
+    normalizedIndustry = 'Pharma';
+  } else if (filterLower.includes('พลาสติก') || filterLower.includes('polymer') || filterLower.includes('pet') || filterLower.includes('nylon')) {
+    normalizedIndustry = 'Polymers';
+  } else if (filterLower.includes('นาโน') || filterLower.includes('พลังงาน') || filterLower.includes('energy') || filterLower.includes('semiconductor') || filterLower.includes('solar') || filterLower.includes('mxene')) {
+    normalizedIndustry = 'Advanced Energy';
+  } else if (filterLower.includes('แร่') || filterLower.includes('เร่ง') || filterLower.includes('mineral') || filterLower.includes('catalyst') || filterLower.includes('zeolite') || filterLower.includes('spinel') || filterLower.includes('ferrite')) {
+    normalizedIndustry = 'Minerals/Catalysts';
+  }
+
+  const library = UNIVERSAL_MASTER_LIBRARY;
+  const results: PeakAssignmentResult[] = [];
+
+  for (const peak of peaks) {
+    let pos = 0;
+    if (typeof peak === 'number') {
+      pos = peak;
+    } else if (peak) {
+      pos = typeof peak.position === 'number' ? peak.position :
+            typeof peak.wavenumber === 'number' ? peak.wavenumber :
+            typeof peak.ramanShift === 'number' ? peak.ramanShift :
+            typeof peak.x === 'number' ? peak.x : 0;
+    }
+    if (pos === 0 || isNaN(pos)) continue;
+
+    let val = 100;
+    if (peak && typeof peak === 'object') {
+      val = typeof peak.intensity === 'number' ? peak.intensity :
+            typeof peak.y === 'number' ? peak.y : 100;
+    }
+
+    let bestMatch: {
+      assignment: string;
+      confidence: number;
+      details: string;
+    } | null = null;
+
+    for (const entry of library) {
+      if (normalizedIndustry !== 'All' && entry.industry !== normalizedIndustry) {
+        continue;
+      }
+
+      if (technique === 'XRD' && entry.xrdPeaks) {
+        for (const ref of entry.xrdPeaks) {
+          const diff = Math.abs(pos - ref.position);
+          if (diff <= 0.35) {
+            const confidence = Math.max(50, Math.round(100 - (diff / 0.35) * 50));
+            const hklText = ref.hkl ? ` (${ref.hkl})` : '';
+            const assignment = `${entry.name}${hklText}`;
+            const details = `Matched with ${entry.name} reference peak at ${ref.position}° 2-theta. hkl: ${ref.hkl || 'N/A'}. (Diff: ${diff.toFixed(2)}°)`;
+
+            if (!bestMatch || confidence > bestMatch.confidence) {
+              bestMatch = { assignment, confidence, details };
+            }
+          }
+        }
+      } else if (technique === 'FTIR' && entry.ftirBands) {
+        for (const band of entry.ftirBands) {
+          if (pos >= band.min && pos <= band.max) {
+            const center = (band.min + band.max) / 2;
+            const span = band.max - band.min || 1;
+            const diff = Math.abs(pos - center);
+            const confidence = Math.max(50, Math.round(100 - (diff / (span / 2)) * 50));
+            const assignment = `${entry.name} - ${band.assignment}`;
+            const details = `${band.description} (Band range: ${band.min}-${band.max} cm⁻¹)`;
+
+            if (!bestMatch || confidence > bestMatch.confidence) {
+              bestMatch = { assignment, confidence, details };
+            }
+          }
+        }
+      } else if (technique === 'RAMAN' && entry.ramanModes) {
+        for (const mode of entry.ramanModes) {
+          if (pos >= mode.min && pos <= mode.max) {
+            const center = (mode.min + mode.max) / 2;
+            const span = mode.max - mode.min || 1;
+            const diff = Math.abs(pos - center);
+            const confidence = Math.max(50, Math.round(100 - (diff / (span / 2)) * 50));
+            const assignment = `${entry.name} - ${mode.assignment}`;
+            const details = `${mode.description} (Mode range: ${mode.min}-${mode.max} cm⁻¹)`;
+
+            if (!bestMatch || confidence > bestMatch.confidence) {
+              bestMatch = { assignment, confidence, details };
+            }
+          }
+        }
+      }
+    }
+
+    if (bestMatch) {
+      results.push({
+        position: pos,
+        intensity: val,
+        assignment: bestMatch.assignment,
+        confidence: bestMatch.confidence,
+        details: bestMatch.details
+      });
+    } else {
+      results.push({
+        position: pos,
+        intensity: val,
+        assignment: 'Unassigned',
+        confidence: 0,
+        details: `No reference peak found in selected industry mode (${normalizedIndustry})`
       });
     }
   }

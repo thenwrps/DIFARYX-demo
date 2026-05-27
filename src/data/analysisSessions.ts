@@ -780,6 +780,14 @@ export function saveAnalysisSession(session: AnalysisSession): AnalysisSession {
   return nextSession;
 }
 
+export function deleteAnalysisSession(analysisId: string): boolean {
+  const sessions = getAnalysisSessions();
+  const next = sessions.filter((session) => session.analysisId !== analysisId);
+  if (next.length === sessions.length) return false;
+  writeStoredSessions(next);
+  return true;
+}
+
 export function createAnalysisSession(technique: AnalysisTechnique, fileName = `new_${technique}_analysis.csv`) {
   const sessions = getAnalysisSessions();
   const maxIdNumber = sessions.reduce((max, session) => {

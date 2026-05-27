@@ -2,10 +2,14 @@ import type { XRDProcessingProvenance } from './xrdBackend';
 import type {
   XRDWorkflowScientificEvidence,
   XRDWorkflowReferenceMatchEvidence,
+  XRDWorkflowHandoffState,
 } from './xrdWorkflowContract';
 
 export interface XrdWorkflowSession {
   sessionId: string;
+  projectId?: string;
+  uploadedRunId?: string;
+  fileName?: string;
   createdAt: string;
   updatedAt: string;
   runtime: XrdWorkflowRuntimeState;
@@ -21,6 +25,7 @@ export interface XrdWorkflowSession {
     publishedAt: string;
     evidenceSnapshot: any; // รองรับก้อน state.evidence
   };
+  xrdWorkflowHandoffState?: XRDWorkflowHandoffState;
 }
 
 export interface XrdWorkflowRuntimeState {
@@ -109,5 +114,4 @@ export type XrdWorkflowEvent =
   | { type: 'SET_VALIDATION_GAPS'; payload: { gaps: string[] } }
   | { type: 'PUBLISH_SESSION'; payload: { versionTag: string } }
   | { type: 'REVERT_TO_PUBLISHED' };
-
 

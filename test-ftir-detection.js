@@ -40,7 +40,7 @@ function generateFtirSpectrum() {
   return { wavenumber, absorbance };
 }
 
-function correctBaseline(dataPoints, method = 'Polynomial') {
+function correctBaseline(dataPoints) {
   const n = dataPoints.length;
   const baseline = new Array(n);
   

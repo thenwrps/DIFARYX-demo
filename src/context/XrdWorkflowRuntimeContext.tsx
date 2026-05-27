@@ -248,6 +248,7 @@ const INITIAL_RUNTIME_STATE: XrdWorkflowRuntimeState = {
   sampleId: null,
   materialClass: null,
   sessionResetNotification: null,
+  currentSession: null,
 };
 
 // ── Provider Component ──────────────────────────────────────────────────

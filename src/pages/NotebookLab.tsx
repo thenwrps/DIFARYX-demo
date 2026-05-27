@@ -2752,7 +2752,7 @@ ${approvalLedgerMarkdown}
                         ))}
                       </div>
                       <p className="mt-1.5 text-[10px] text-text-dim">
-                        Saved: {formatNotebookReferenceTimestamp(rm.savedAt)}
+                        Saved: {formatNotebookReferenceTimestamp((rm as unknown as { savedAt?: string }).savedAt)}
                       </p>
                     </div>
                   );

@@ -376,7 +376,8 @@ function getDiscussionDraft(projectId: string, templateMode: NotebookTemplateMod
   const nextDecision = project.nextDecisions[0]?.label ?? 'Preserve the current evidence boundary';
 
   if (templateMode === 'research') {
-    return `${project.notebook.phaseIdentification} ${project.notebook.keyEvidence} ${validationLine}`;
+    const keyEvidence = project.evidence[0] ?? project.notebook.peakDetection;
+    return `${project.notebook.phaseIdentification} ${keyEvidence} ${validationLine}`;
   }
 
   if (templateMode === 'rd') {

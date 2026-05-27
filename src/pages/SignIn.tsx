@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, Mail, UserRound } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card, CardContent } from "../components/ui/Card";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth, type AuthUser } from "../contexts/AuthContext";
 import {
   getGoogleOAuthClientId,
   getGoogleOAuthClientIdSource,
@@ -40,7 +40,7 @@ export default function SignIn() {
   }, [routeState?.authError]);
 
   const enterDemo = (
-    profile = {
+    profile: AuthUser = {
       name: "Researcher",
       email: "user@difaryx.local",
       organization: "DIFARYX Lab",

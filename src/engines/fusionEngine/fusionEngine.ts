@@ -95,7 +95,7 @@ function generateEvidenceId(technique: Technique, peak: PeakInput): string {
     case 'FTIR':
       return generateFtirEvidenceId(peak);
     default:
-      return `${technique.toLowerCase()}-${peak.id}`;
+      return `${String(technique).toLowerCase()}-${peak.id}`;
   }
 }
 

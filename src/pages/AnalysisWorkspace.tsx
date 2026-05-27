@@ -24,6 +24,7 @@ import {
   Search,
   Send,
   SlidersHorizontal,
+  Trash2,
   Upload,
 } from 'lucide-react';
 import { DashboardLayout } from '../components/layout/DashboardLayout';
@@ -39,6 +40,7 @@ import {
   ProcessingParameter,
   TECHNIQUE_DEFINITIONS,
   createAnalysisSession,
+  deleteAnalysisSession,
   getAnalysisSession,
   getAnalysisSessions,
   getOriginLabel,
@@ -53,6 +55,7 @@ import {
 import {
   AXIS_DEFAULTS_BY_TECHNIQUE,
   createUploadedSignalRun,
+  deleteUploadedSignalRun,
   mapUploadedSignalColumns,
   parseUploadedSignalText,
   saveUploadedSignalRun,
@@ -665,7 +668,7 @@ export function AnalysisWorkspaceHome() {
 
     try {
       const parsed = parseUploadedSignalText(file.name, await file.text());
-      if (!parsed.ok) {
+      if (parsed.ok === false) {
         setUploadError(parsed.error);
         return;
       }
@@ -715,6 +718,19 @@ export function AnalysisWorkspaceHome() {
       processingLog: ['Saved quick analysis session', ...session.processingLog],
     });
     setSessions(getAnalysisSessions());
+  };
+
+  const handleDeleteSession = (session: AnalysisSession) => {
+    if (session.source !== 'user_uploaded') return;
+    const confirmed = window.confirm(`Delete ${session.fileName} from local uploaded evidence history?`);
+    if (!confirmed) return;
+
+    deleteAnalysisSession(session.analysisId);
+    if (session.uploadedRunId) deleteUploadedSignalRun(session.uploadedRunId);
+    if (createdUploadSessionId === session.analysisId) setCreatedUploadSessionId(null);
+    setSessionMenuOpen(null);
+    setSessions(getAnalysisSessions());
+    setUploadNotice(`${session.fileName} deleted from local uploaded evidence history.`);
   };
 
   return (
@@ -870,8 +886,8 @@ export function AnalysisWorkspaceHome() {
                 {userUploadMode ? 'Showing local user_uploaded evidence sessions.' : 'Quick and attached sessions stay visible here.'}
               </span>
             </div>
-            <div className="overflow-hidden rounded-lg border border-border bg-white">
-              <div className="grid grid-cols-[86px_minmax(180px,1.2fr)_minmax(150px,0.9fr)_120px_92px_minmax(260px,1fr)] border-b border-border bg-slate-50 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-text-muted">
+            <div className="overflow-x-auto rounded-lg border border-border bg-white">
+              <div className="grid min-w-[900px] grid-cols-[70px_minmax(170px,1fr)_110px_94px_72px_330px] gap-2 border-b border-border bg-slate-50 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-text-muted">
                 <span>Technique</span>
                 <span>File name</span>
                 <span>Project status</span>
@@ -882,7 +898,7 @@ export function AnalysisWorkspaceHome() {
               {recentSessions.map((session) => (
                 <div
                   key={session.analysisId}
-                  className="grid grid-cols-[86px_minmax(180px,1.2fr)_minmax(150px,0.9fr)_120px_92px_minmax(180px,1fr)] items-center gap-2 border-b border-border px-3 py-2 last:border-b-0"
+                  className="grid min-w-[900px] grid-cols-[70px_minmax(170px,1fr)_110px_94px_72px_330px] items-center gap-2 border-b border-border px-3 py-2 last:border-b-0"
                 >
                   <span className={cn('w-fit rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase', techniqueClass(session.technique))}>
                     {techniqueLabel(session.technique)}
@@ -898,14 +914,13 @@ export function AnalysisWorkspaceHome() {
                     {getStatusLabel(session.status)}
                   </span>
                   <p className="text-[11px] text-text-muted">{session.updatedLabel}</p>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <HistoryActionLink to={quickWorkspacePath(session)}>Open Workspace</HistoryActionLink>
+                  <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap">
+                    <HistoryActionLink to={quickWorkspacePath(session)}>Workspace</HistoryActionLink>
                     {session.source === 'user_uploaded' && (
                       <>
-                        <HistoryActionLink to={uploadHandoffPath(session, 'agent')}>Send to Agent</HistoryActionLink>
-                        <HistoryActionLink to={uploadHandoffPath(session, 'notebook')}>Send to Notebook</HistoryActionLink>
-                        <HistoryActionLink to={uploadHandoffPath(session, 'report')}>Create Report</HistoryActionLink>
-                        <HistoryActionLink to={uploadHandoffPath(session, 'multi')}>Open Multi-Tech</HistoryActionLink>
+                        <HistoryActionLink to={uploadHandoffPath(session, 'agent')}>Agent</HistoryActionLink>
+                        <HistoryActionLink to={uploadHandoffPath(session, 'notebook')}>Notebook</HistoryActionLink>
+                        <HistoryActionLink to={uploadHandoffPath(session, 'report')}>Report</HistoryActionLink>
                       </>
                     )}
                     <div className="relative">
@@ -918,6 +933,9 @@ export function AnalysisWorkspaceHome() {
                       </button>
                       {sessionMenuOpen === session.analysisId && (
                         <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-border rounded-lg shadow-lg z-50">
+                          {session.source === 'user_uploaded' && (
+                            <HistoryActionLink to={uploadHandoffPath(session, 'multi')} onClick={() => setSessionMenuOpen(null)}>Multi-Tech</HistoryActionLink>
+                          )}
                           <HistoryActionLink to={`${quickWorkspacePath(session)}&action=attach`} onClick={() => setSessionMenuOpen(null)}>Attach</HistoryActionLink>
                           <button
                             type="button"
@@ -951,6 +969,15 @@ export function AnalysisWorkspaceHome() {
                           <HistoryActionLink to={session.source === 'user_uploaded' ? uploadHandoffPath(session, 'report') : session.projectId ? `/reports?project=${session.projectId}` : quickWorkspacePath(session)} onClick={() => setSessionMenuOpen(null)}>
                             Report Draft
                           </HistoryActionLink>
+                          {session.source === 'user_uploaded' && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSession(session)}
+                              className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-[10px] font-semibold text-red-700 hover:bg-red-50"
+                            >
+                              <Trash2 size={12} /> Delete
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>

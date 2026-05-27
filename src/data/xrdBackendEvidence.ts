@@ -2,7 +2,7 @@
  * XRD Backend Evidence Persistence
  *
  * Stores the normalised result returned by the Python XRD backend so that
- * downstream surfaces – Agent Mode, Notebook, and Report – can consume it
+ * downstream surfaces â€“ Agent Mode, Notebook, and Report â€“ can consume it
  * without re-invoking the backend.
  *
  * Storage key convention:
@@ -27,7 +27,7 @@ import type {
 } from '../types/xrdWorkflowContract';
 import { mapReferenceMatchV2ToWorkflow, mapScientificEvidenceToWorkflow } from '../types/xrdWorkflowContract';
 
-// ── Storage key ─────────────────────────────────────────────────────
+// â”€â”€ Storage key â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const XRD_BACKEND_EVIDENCE_KEY = 'difaryx-local:xrd-backend-evidence';
 const MAX_STORED_SCIENTIFIC_EVIDENCE_BYTES = 48_000;
@@ -43,7 +43,7 @@ const PROHIBITED_REFERENCE_MATCH_V2_LIMITATION_PATTERNS = [
   /phase purity confirmed/i,
 ];
 
-// ── Persisted shape ─────────────────────────────────────────────────
+// â”€â”€ Persisted shape â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export interface XRDBackendEvidenceRecord {
   /** Project the evidence belongs to (or "__unassigned__" for quick-analysis). */
@@ -55,7 +55,7 @@ export interface XRDBackendEvidenceRecord {
   /** ISO-8601 timestamp of when the record was saved. */
   timestamp: string;
 
-  // ── Compact backend result metadata ─────────────────────────────
+  // â”€â”€ Compact backend result metadata â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   detectedPeakCount: number;
   fittedPeakCount: number;
   snRatio: number;
@@ -88,41 +88,6 @@ export interface XRDBackendEvidenceRecord {
    */
   xrdWorkflowHandoffState?: XRDWorkflowHandoffState;
 
-  // ── Legacy / Secondary Properties (Preserved for Fallback/Backward Compatibility) ─────────────────────────────
-  /** @deprecated Use selectXrdQualityMetrics selector instead. */
-  detectedPeakCount?: number;
-  /** @deprecated Use selectXrdQualityMetrics selector instead. */
-  fittedPeakCount?: number;
-  /** @deprecated Use selectXrdQualityMetrics selector instead. */
-  snRatio?: number;
-  /** @deprecated Use selectXrdQualityMetrics selector instead. */
-  baselineDeviation?: number;
-  /** @deprecated Use selectXrdQualityMetrics selector instead. */
-  peakResolution?: XRDNormalizedResult['peakResolution'];
-  /** @deprecated Use selectXrdPhaseMatchSummary selector instead. */
-  primaryPhase?: string | null;
-  /** @deprecated Use selectXrdPhaseMatchSummary selector instead. */
-  matchedPeakCount?: number;
-  /** @deprecated Use selectXrdPhaseMatchSummary selector instead. */
-  phaseSummary?: string | null;
-  /** @deprecated Use selectXrdPhaseMatchSummary selector instead. */
-  isPhaseMatched?: boolean;
-  /** Number of residual points available (full array excluded for size). */
-  yResidualCount: number;
-  /** Phase X3: Structured scientific evidence for Agent/Notebook/Report handoff. */
-  workflowScientificEvidence?: XRDWorkflowScientificEvidence;
-  /** @deprecated Phase X5A: Use xrdWorkflowHandoffState or selectXrdWorkflowScientificEvidence() selector. */
-  scientificEvidenceSummary?: XRDSkillEvidenceSummary;
-  /** Phase X2: Structured reference match evidence for Agent/Notebook/Report handoff. */
-  workflowReferenceMatchEvidence?: XRDWorkflowReferenceMatchEvidence;
-  /** @deprecated Phase X5A: Use xrdWorkflowHandoffState or selectXrdWorkflowReferenceMatchEvidence() selector. */
-  referenceMatchV2Summary?: XRDReferenceMatchV2EvidenceSummary;
-  /** Full JSON-safe skill evidence when it remains small enough for localStorage. */
-  scientificEvidenceObject?: ScientificEvidenceObject;
-  /** Phase X1: Echoed dataset context from backend for self-contained evidence. */
-  datasetContextEcho?: XRDDatasetContextEcho | null;
-  /** Phase X1: Processing provenance for reproducibility and citation. */
-  processingProvenance?: XRDProcessingProvenance | null;
 }
 
 export interface XRDSkillEvidenceSummary {
@@ -169,7 +134,7 @@ export interface XRDReferenceMatchV2EvidenceSummary {
   savedAt: string;
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function canUseStorage(): boolean {
   try {
@@ -405,7 +370,7 @@ function buildXrdWorkflowHandoffState(
   };
 }
 
-// ── Public API ──────────────────────────────────────────────────────
+// â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Persist (or upsert) a normalised XRD backend result for later handoff.

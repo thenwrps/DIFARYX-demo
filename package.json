@@ -10,6 +10,7 @@
     "video:render": "remotion render remotion/src/Root.tsx GoogleAIChallengeVideo remotion/out/difaryx-google-ai-challenge.mp4",
     "smoke:upload-beta": "node test-upload-beta.mjs",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
     "preview": "vite preview"
   },
   "dependencies": {

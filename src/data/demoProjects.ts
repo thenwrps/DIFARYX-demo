@@ -1149,6 +1149,18 @@ function gaussian(x: number, center: number, width: number) {
   return Math.exp(-0.5 * scaled * scaled);
 }
 
+function pseudoVoigt(x: number, center: number, fwhm: number, mixing = 0.45, tailFactor = 0.22) {
+  const width = fwhm / 2.355;
+  const scaled = (x - center) / width;
+  const g = Math.exp(-0.5 * scaled * scaled);
+  const l = 1 / (1 + scaled * scaled);
+  let val = mixing * l + (1 - mixing) * g;
+  if (tailFactor > 0 && x > center) {
+    val *= Math.exp(-tailFactor * scaled);
+  }
+  return val;
+}
+
 export function makeXrdPattern(project: DemoProject) {
   return Array.from({ length: 420 }, (_, index) => {
     const x = 10 + (70 * index) / 419;
@@ -1158,9 +1170,10 @@ export function makeXrdPattern(project: DemoProject) {
       0,
     );
     const noise = 0.8 * Math.sin(index * 0.61) + 0.45 * Math.sin(index * 1.37);
+    const whiteNoise = (Math.sin(index * 98.7) * Math.cos(index * 123.45)) * 0.005 * 100;
     return {
       x: Number(x.toFixed(2)),
-      y: Number(Math.max(0, baseline + peakSignal + noise).toFixed(3)),
+      y: Number(Math.max(0, baseline + peakSignal + noise + whiteNoise).toFixed(3)),
     };
   });
 }
@@ -1192,9 +1205,10 @@ function makeXpsPattern(project: DemoProject) {
   return Array.from({ length: 520 }, (_, index) => {
     const x = Number(((1200 * index) / 519).toFixed(1));
     const background = 24 + 18 * Math.exp(-x / 520) + 5 * Math.sin(index * 0.017);
-    const signal = centers.reduce((sum, peak) => sum + peak.h * gaussian(x, peak.c, peak.w), background);
+    const signal = centers.reduce((sum, peak) => sum + peak.h * pseudoVoigt(x, peak.c, peak.w, 0.45, 0.22), background);
     const noise = 1.2 * Math.sin(index * 0.61) + 0.7 * Math.sin(index * 1.11);
-    return { x, y: Number(Math.max(0, signal + noise).toFixed(3)) };
+    const whiteNoise = (Math.sin(index * 98.7) * Math.cos(index * 123.45)) * 0.005 * 150;
+    return { x, y: Number(Math.max(0, signal + noise + whiteNoise).toFixed(3)) };
   });
 }
 
@@ -1214,7 +1228,8 @@ function makeFtirPattern(project: DemoProject) {
     const background = 94 - 1.8 * Math.sin((x - 400) / 620);
     const signal = bands.reduce((sum, band) => sum - band.h * gaussian(x, band.c, band.w), background);
     const noise = 0.5 * Math.sin(index * 0.73) + 0.3 * Math.sin(index * 1.23);
-    return { x, y: Number(Math.max(20, signal + noise).toFixed(3)) };
+    const whiteNoise = (Math.sin(index * 98.7) * Math.cos(index * 123.45)) * 0.005 * 100;
+    return { x, y: Number(Math.max(20, signal + noise + whiteNoise).toFixed(3)) };
   });
 }
 
@@ -1234,7 +1249,8 @@ function makeRamanPattern(project: DemoProject) {
     const background = 7 + 16 * Math.exp(-(x - 100) / 1650) + 2.3 * Math.sin(x / 430);
     const signal = peaks.reduce((sum, peak) => sum + peak.h * gaussian(x, peak.c, peak.w), background);
     const noise = 0.9 * Math.sin(index * 0.49) + 0.55 * Math.sin(index * 1.17);
-    return { x, y: Number(Math.max(0, signal + noise).toFixed(3)) };
+    const whiteNoise = (Math.sin(index * 98.7) * Math.cos(index * 123.45)) * 0.005 * 100;
+    return { x, y: Number(Math.max(0, signal + noise + whiteNoise).toFixed(3)) };
   });
 }
 

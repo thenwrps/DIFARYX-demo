@@ -6,6 +6,7 @@ export interface AgentRun {
   workspaceParameters?: Record<string, Record<string, string | number | boolean | string[]>>;
   outputs: {
     phase: string;
+    claimStatus?: 'strongly_supported' | 'supported' | 'partial' | 'inconclusive' | 'contradicted';
     confidence: number;
     confidenceLabel: string;
     evidence: string[];

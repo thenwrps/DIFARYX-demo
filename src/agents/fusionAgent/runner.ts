@@ -190,8 +190,8 @@ function evaluateSpinelStructureClaim(
   });
   
   // XPS provides corroborating evidence for oxidation states
-  const hasCu2 = xpsEvidence.some(e => e.type === 'oxidation-state' && e.value.includes('Cu²⁺'));
-  const hasFe3 = xpsEvidence.some(e => e.type === 'oxidation-state' && e.value.includes('Fe³⁺'));
+  const hasCu2 = xpsEvidence.some(e => e.type === 'oxidation-state' && String(e.value).includes('Cu²⁺'));
+  const hasFe3 = xpsEvidence.some(e => e.type === 'oxidation-state' && String(e.value).includes('Fe³⁺'));
   
   let xpsSupport: SupportType = 'neutral';
   let xpsReasoning = '';
@@ -201,7 +201,7 @@ function evaluateSpinelStructureClaim(
     xpsSupport = 'supports';
     xpsReasoning = 'Oxidation states consistent with ferrite chemistry';
     xpsEvidenceItems.push(...xpsEvidence.filter(e => 
-      e.type === 'oxidation-state' && (e.value.includes('Cu²⁺') || e.value.includes('Fe³⁺'))
+      e.type === 'oxidation-state' && (String(e.value).includes('Cu²⁺') || String(e.value).includes('Fe³⁺'))
     ));
   }
   
@@ -562,7 +562,7 @@ function evaluateCarbonateSurfaceClaim(
   
   // FTIR has authority for carbonate/carboxylate
   const hasCarbonate = ftirEvidence.some(e => 
-    e.value === 'carbonate/carboxylate overlap' || e.value.includes('Carbonate')
+    e.value === 'carbonate/carboxylate overlap' || String(e.value).includes('Carbonate')
   );
   
   let ftirSupport: SupportType = hasCarbonate ? 'supports' : 'neutral';
@@ -570,7 +570,7 @@ function evaluateCarbonateSurfaceClaim(
     ? 'Carbonate/carboxylate overlap region detected; FTIR alone cannot distinguish'
     : 'No carbonate/carboxylate evidence detected';
   const ftirEvidenceItems = hasCarbonate
-    ? ftirEvidence.filter(e => e.value === 'carbonate/carboxylate overlap' || e.value.includes('Carbonate'))
+    ? ftirEvidence.filter(e => e.value === 'carbonate/carboxylate overlap' || String(e.value).includes('Carbonate'))
     : [];
   
   supportingTechniques.push({

@@ -1087,7 +1087,7 @@ function buildNotebookReferenceCandidateEvidence(
         referenceRelativeIntensity: finiteAgentNumber(peak.referenceRelativeIntensity) ?? null,
       };
     })
-    .filter((peak): peak is NonNullable<NonNullable<NotebookEntry['xrdReferenceMatchV2Summary']>['matchedPeaksPreview']>[number] => Boolean(peak));
+    .filter(Boolean) as NonNullable<NonNullable<NotebookEntry['xrdReferenceMatchV2Summary']>['matchedPeaksPreview']>;
 
   return {
     label: 'Reference candidate evidence',
@@ -2455,7 +2455,7 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
         })()
       : notebookEntry;
 
-    saveNotebookEntry(entryToSave);
+    saveNotebookEntry(entryToSave as NotebookEntry);
     logLocalAction('Notebook handoff', 'notebook_commit', 'Notebook memory handoff preview', 'low');
     appendLog({
       stamp: '[notebook]',

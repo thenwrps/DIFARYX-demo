@@ -664,6 +664,20 @@ export function saveUploadedSignalRun(run: UploadedSignalRun): boolean {
   }
 }
 
+export function deleteUploadedSignalRun(runId: string): boolean {
+  if (typeof window === 'undefined' || !window.localStorage) return false;
+
+  try {
+    const existing = readUploadedSignalRuns();
+    const next = existing.filter((run) => run.id !== runId);
+    if (next.length === existing.length) return false;
+    window.localStorage.setItem(UPLOADED_SIGNAL_RUNS_KEY, JSON.stringify(next));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Update uploaded run with new processing results
  */

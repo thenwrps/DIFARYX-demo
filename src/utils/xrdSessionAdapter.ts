@@ -241,6 +241,9 @@ export function buildXrdWorkflowSession(params: BuildXrdSessionParams): XrdWorkf
 
   return {
     sessionId: resolvedSessionId,
+    projectId: projectId || evidenceRecord?.projectId,
+    uploadedRunId: uploadedRunId || evidenceRecord?.uploadedRunId,
+    fileName: fileName || evidenceRecord?.fileName,
     createdAt,
     updatedAt,
     runtime,
@@ -251,5 +254,6 @@ export function buildXrdWorkflowSession(params: BuildXrdSessionParams): XrdWorkf
     publication,
     scientificBoundaries,
     contract,
+    xrdWorkflowHandoffState: evidenceRecord?.xrdWorkflowHandoffState,
   };
 }

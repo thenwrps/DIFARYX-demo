@@ -37,7 +37,9 @@ import {
   type TechniqueId,
 } from '../data/demoProjectRegistry';
 
-const TECHNIQUE_ORDER: TechniqueId[] = ['xrd', 'xps', 'ftir', 'raman'];
+type WorkspaceTechniqueId = Exclude<TechniqueId, 'multi'>;
+
+const TECHNIQUE_ORDER: WorkspaceTechniqueId[] = ['xrd', 'xps', 'ftir', 'raman'];
 
 const workflowSteps = [
   { label: 'Research Objective', to: null },
@@ -64,7 +66,7 @@ function techniqueFullName(id: TechniqueId) {
   return 'Cross-technique evidence';
 }
 
-function techniqueRoute(technique: TechniqueId, projectId: string) {
+function techniqueRoute(technique: WorkspaceTechniqueId, projectId: string) {
   return `/workspace/${technique}?project=${projectId}&mode=demo`;
 }
 

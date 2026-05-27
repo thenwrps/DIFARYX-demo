@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowRight, BookOpen, Bot, ClipboardList, FileText, FolderOpen, History, Target } from 'lucide-react';
+import { ArrowRight, BookOpen, Bot, ClipboardList, FileText, FolderOpen, History, Target, Trash2 } from 'lucide-react';
 import { DashboardLayout } from '../components/layout/DashboardLayout';
 import { Card } from '../components/ui/Card';
 import { ApprovalLedgerPanel } from '../components/runtime/ApprovalLedgerPanel';
@@ -22,7 +22,8 @@ import {
   setWorkspaceMode,
 } from '../utils/workspaceMode';
 import { getApprovalLedgerEntries, type ApprovalLedgerEntry } from '../runtime/approvalLedger';
-import { getAnalysisSessions, getStatusLabel, type AnalysisSession } from '../data/analysisSessions';
+import { deleteAnalysisSession, getAnalysisSessions, getStatusLabel, type AnalysisSession } from '../data/analysisSessions';
+import { deleteUploadedSignalRun } from '../data/uploadedSignalRuns';
 import { runWhenIdle } from '../utils/idle';
 
 const EVENT_TYPES: ExperimentEventType[] = [
@@ -103,6 +104,15 @@ export default function HistoryPage() {
       );
     });
   }, [showUserHistory]);
+
+  const handleDeleteUserUploadedSession = (session: AnalysisSession) => {
+    const confirmed = window.confirm(`Delete ${session.fileName} from local uploaded evidence history?`);
+    if (!confirmed) return;
+
+    deleteAnalysisSession(session.analysisId);
+    if (session.uploadedRunId) deleteUploadedSignalRun(session.uploadedRunId);
+    setUserUploadedSessions((current) => current.filter((item) => item.analysisId !== session.analysisId));
+  };
 
   const updateFilter = (key: string, value: string) => {
     const next = new URLSearchParams(searchParams);
@@ -252,8 +262,8 @@ export default function HistoryPage() {
         )}
 
         {showUserHistory && userUploadedSessions.length > 0 && (
-          <Card className="mb-5 overflow-hidden rounded-lg bg-white">
-            <div className="grid grid-cols-[1fr_120px_120px_1.2fr] gap-3 border-b border-border bg-slate-50 px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-text-muted">
+          <Card className="mb-5 overflow-x-auto rounded-lg bg-white">
+            <div className="grid min-w-[880px] grid-cols-[minmax(240px,1fr)_96px_92px_410px] gap-3 border-b border-border bg-slate-50 px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-text-muted">
               <span>Uploaded evidence</span>
               <span>Technique</span>
               <span>Status</span>
@@ -262,7 +272,7 @@ export default function HistoryPage() {
             {userUploadedSessions.map((session) => {
               const query = uploadedSessionQuery(session);
               return (
-                <div key={session.analysisId} className="grid grid-cols-[1fr_120px_120px_1.2fr] items-center gap-3 border-b border-border px-4 py-3 text-sm last:border-b-0">
+                <div key={session.analysisId} className="grid min-w-[880px] grid-cols-[minmax(240px,1fr)_96px_92px_410px] items-center gap-3 border-b border-border px-4 py-3 text-sm last:border-b-0">
                   <div className="min-w-0">
                     <p className="truncate font-bold text-text-main">{session.fileName}</p>
                     <p className="mt-1 truncate text-xs text-text-muted">{session.analysisId} / source=user_uploaded</p>
@@ -271,7 +281,7 @@ export default function HistoryPage() {
                     {session.technique.toUpperCase()}
                   </span>
                   <span className="text-xs font-semibold text-text-muted">{getStatusLabel(session.status)}</span>
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-nowrap gap-1.5 whitespace-nowrap">
                     <Link
                       to={uploadedTechniqueWorkspacePath(session)}
                       className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-[10px] font-semibold text-text-main hover:bg-surface-hover"
@@ -296,6 +306,13 @@ export default function HistoryPage() {
                     >
                       <FileText size={12} /> Report
                     </Link>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteUserUploadedSession(session)}
+                      className="inline-flex h-7 items-center gap-1 rounded-md border border-red-200 px-2 text-[10px] font-semibold text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 size={12} /> Delete
+                    </button>
                   </div>
                 </div>
               );

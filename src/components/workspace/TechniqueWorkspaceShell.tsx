@@ -90,7 +90,7 @@ import {
   type TechniqueFeature,
   type UploadedSignalRun,
 } from '../../data/uploadedSignalRuns';
-import { runXrdPhaseIdentificationAgent } from '../../agents/xrdAgent/runner';
+import { runXrdPhaseIdentificationAgent, preprocess_xrd, detect_xrd_peaks, type XrdProcessingParams } from '../../agents/xrdAgent/runner';
 import { getXrdProcessingParams, getXrdParameterSnapshot } from '../../utils/xrdParameterAdapter';
 import {
   processXrdSkillEvidence,
@@ -100,7 +100,7 @@ import {
 } from '../../services/xrdBackendClient';
 import type { XRDLocalReferencePayload, XRDNormalizedResult, XRDReferenceMatchV2, XRDReferenceMatchV2Candidate } from '../../types/xrdBackend';
 import type { XRDDatasetContext } from '../../types/xrdDatasetContext';
-import type { XRDParameters } from '../../types/xrdParameters';
+import type { XRDClaimMode, XRDMatchMode, XRDParameters } from '../../types/xrdParameters';
 import {
   PLANNED_XRD_LOCAL_REFERENCES,
   createEmptyXrdLocalReferenceParseResult,
@@ -141,6 +141,7 @@ import { runFtirProcessing } from '../../agents/ftirAgent/runner';
 import { getFtirProcessingParams, getFtirParameterSnapshot } from '../../utils/ftirParameterAdapter';
 import { getTechniqueProcessingSupport } from '../../utils/techniqueProcessingSupport';
 import { runWhenIdle } from '../../utils/idle';
+import { identifyMaterialFeatures, applyBaseline, applySmoothing } from '../../hooks/useX7UniversalHook';
 
 const RIGHT_TABS = ['Evidence', 'Parameters', 'Graph', 'Boundary', 'Trace'] as const;
 type RightTab = (typeof RIGHT_TABS)[number];
@@ -926,6 +927,21 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
         sourceLabel: evidenceSnapshot?.sourceLabel ?? 'Demo evidence',
         approvalStatus: evidenceSnapshot?.approvalStatus ?? 'not_required',
       } as const;
+
+  // XRD Backend integration state (XRD workspace only)
+  const isXrdBackendEnabled = technique === 'xrd';
+  const [xrdParameters, setXrdParameters] = useState<XRDParameters>(cloneDefaultXrdParameters);
+  const [xrdDatasetContext, setXrdDatasetContext] = useState<XRDDatasetContext>(createDefaultXrdDatasetContext);
+  const [xrdBackendHealth, setXrdBackendHealth] = useState<XRDHealthStatus | null>(null);
+  const [xrdBackendResult, setXrdBackendResult] = useState<XRDNormalizedResult | null>(null);
+  const [xrdBackendLoading, setXrdBackendLoading] = useState(false);
+  const [xrdBackendError, setXrdBackendError] = useState<string | null>(null);
+  const [xrdBackendSaved, setXrdBackendSaved] = useState(false);
+  const [useXrdLocalReferenceForBackend, setUseXrdLocalReferenceForBackend] = useState(false);
+
+  const [reReadTrigger, setReReadTrigger] = useState(0);
+  const triggerReRead = () => setReReadTrigger((prev) => prev + 1);
+
   const [uploadedRunsForGraph, setUploadedRunsForGraph] = useState<UploadedSignalRun[]>([]);
   useEffect(() => {
     if (!quickAnalysisSession?.uploadedRunId) {
@@ -936,7 +952,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
     return runWhenIdle(() => {
       setUploadedRunsForGraph(readUploadedSignalRuns());
     });
-  }, [quickAnalysisSession?.uploadedRunId]);
+  }, [quickAnalysisSession?.uploadedRunId, reReadTrigger]);
 
   const quickGraphData = useMemo(
     () => buildQuickGraphData(quickAnalysisSession, uploadedRunsForGraph),
@@ -944,6 +960,67 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
   );
   const uploadedGraphData = useMemo(() => buildSnapshotGraphData(snapshotDataset), [snapshotDataset]);
   const graphData = quickGraphData ?? uploadedGraphData ?? focusedEvidence?.graphData;
+
+  const rawXrdPoints = useMemo<{ x: number; y: number }[]>(() => {
+    if (technique !== 'xrd') return [];
+    const uploadedRunId = routeContext.uploadedRunId ?? quickAnalysisSession?.uploadedRunId ?? null;
+    const uploadedRun = uploadedRunId ? getUploadedRunById(uploadedRunId) : null;
+    if (uploadedRun?.technique === 'XRD' && uploadedRun.points?.length > 0) {
+      return uploadedRun.points.map(p => ({ x: p.x, y: p.y }));
+    }
+    if (graphData?.data) {
+      return graphData.data.map(p => ({ x: p.x, y: p.y }));
+    }
+    return [];
+  }, [technique, routeContext.uploadedRunId, quickAnalysisSession?.uploadedRunId, graphData?.data]);
+
+  const processedXrdData = useMemo(() => {
+    if (technique !== 'xrd' || !rawXrdPoints || rawXrdPoints.length === 0) return null;
+
+    const min2Theta = xrdParameters.range.twoThetaMin;
+    const max2Theta = xrdParameters.range.twoThetaMax;
+    let processed = rawXrdPoints.filter(p => p.x >= min2Theta && p.x <= max2Theta);
+    if (processed.length === 0) {
+      processed = rawXrdPoints.map(p => ({ ...p }));
+    } else {
+      processed = processed.map(p => ({ ...p }));
+    }
+
+    const baselineMethod = xrdParameters.baseline.method;
+    if (baselineMethod !== 'none') {
+      let methodMapped: 'Rubberband' | 'ALS' | 'Polynomial' | 'Rolling Ball' = 'Rubberband';
+      if (baselineMethod === 'asymmetric_ls') {
+        methodMapped = 'ALS';
+      } else if (baselineMethod === 'polynomial') {
+        methodMapped = 'Polynomial';
+      } else if (baselineMethod === 'rolling_ball') {
+        methodMapped = 'Rolling Ball';
+      }
+      processed = applyBaseline(processed, methodMapped);
+    }
+
+    const smoothingMethod = xrdParameters.smoothing.method;
+    if (smoothingMethod !== 'none') {
+      let methodMapped: 'Savitzky-Golay' | 'Moving Average' = 'Savitzky-Golay';
+      if (smoothingMethod === 'savitzky_golay') {
+        methodMapped = 'Savitzky-Golay';
+      } else if (smoothingMethod === 'moving_average') {
+        methodMapped = 'Moving Average';
+      }
+      processed = applySmoothing(processed, methodMapped);
+    }
+
+    return processed;
+  }, [
+    rawXrdPoints,
+    technique,
+    xrdParameters.range.twoThetaMin,
+    xrdParameters.range.twoThetaMax,
+    xrdParameters.baseline.method,
+    xrdParameters.baseline.lambda,
+    xrdParameters.smoothing.method,
+    xrdParameters.smoothing.windowSize,
+  ]);
   const xrdHasFiniteSignal = useMemo(() => {
     if (technique !== 'xrd') return false;
 
@@ -954,7 +1031,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
       return true;
     }
 
-    return graphData?.type === 'XRD' && hasFiniteXrdSignalPoints(graphData.data);
+    return graphData?.type === 'xrd' && hasFiniteXrdSignalPoints(graphData.data);
   }, [graphData, quickAnalysisSession?.uploadedRunId, routeContext.uploadedRunId, technique]);
   const hasProjectEvidence = Boolean(
     isUploadedContext ||
@@ -997,17 +1074,6 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
       setSharedOverrideCount(Object.keys(readParameterState(projectId, technique).overrides).length);
     });
   }, [projectId, technique]);
-
-  // XRD Backend integration state (XRD workspace only)
-  const isXrdBackendEnabled = technique === 'xrd';
-  const [xrdParameters, setXrdParameters] = useState<XRDParameters>(cloneDefaultXrdParameters);
-  const [xrdDatasetContext, setXrdDatasetContext] = useState<XRDDatasetContext>(createDefaultXrdDatasetContext);
-  const [xrdBackendHealth, setXrdBackendHealth] = useState<XRDHealthStatus | null>(null);
-  const [xrdBackendResult, setXrdBackendResult] = useState<XRDNormalizedResult | null>(null);
-  const [xrdBackendLoading, setXrdBackendLoading] = useState(false);
-  const [xrdBackendError, setXrdBackendError] = useState<string | null>(null);
-  const [xrdBackendSaved, setXrdBackendSaved] = useState(false);
-  const [useXrdLocalReferenceForBackend, setUseXrdLocalReferenceForBackend] = useState(false);
 
   useEffect(() => {
     if (!isXrdBackendEnabled) return;
@@ -1113,6 +1179,221 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
   const featureRows = isUploadedContext
     ? getQuickFeatureRows(quickAnalysisSession, snapshotFeatureRows)
     : isQuickMode ? getQuickFeatureRows(quickAnalysisSession, projectFeatureRows) : projectFeatureRows;
+
+  const [industryFilter, setIndustryFilter] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return window.localStorage.getItem('difaryx_selected_industry_mode') || 'All';
+    }
+    return 'All';
+  });
+
+  const handleIndustryFilterChange = (val: string) => {
+    setIndustryFilter(val);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('difaryx_selected_industry_mode', val);
+    }
+    setSessionState((prev) =>
+      addLog(prev, `[industry] Switched Analysis Mode / Industry to: ${val}`),
+    );
+  };
+
+  // Synchronize mapped features to local storage when industryFilter changes
+  useEffect(() => {
+    if (!isUploadedContext || !routeContext.uploadedRunId || technique === 'xrd') return;
+    const uploadedRun = getUploadedRunById(routeContext.uploadedRunId);
+    if (!uploadedRun || !uploadedRun.extractedFeatures) return;
+
+    const matched = identifyMaterialFeatures(
+      uploadedRun.extractedFeatures.map(f => ({
+        position: f.position,
+        intensity: f.intensity
+      })),
+      technique.toUpperCase() as 'XRD' | 'FTIR' | 'RAMAN',
+      industryFilter
+    );
+
+    const updatedFeatures = uploadedRun.extractedFeatures.map((f, index) => {
+      const match = matched[index];
+      if (match && match.assignment !== 'Unassigned') {
+        return {
+          ...f,
+          label: `${match.assignment} (${match.confidence}%)`,
+          context: match.assignment
+        };
+      }
+      return {
+        ...f,
+        label: f.label || 'Unassigned',
+        context: 'Unassigned'
+      };
+    });
+
+    updateUploadedRunProcessingResults(routeContext.uploadedRunId, {
+      extractedFeatures: updatedFeatures
+    });
+  }, [industryFilter, routeContext.uploadedRunId, isUploadedContext, technique]);
+
+  // Auto-run peak detection and phase matching for XRD when parameters or industryFilter changes
+  useEffect(() => {
+    if (!isUploadedContext || !routeContext.uploadedRunId || technique !== 'xrd' || rawXrdPoints.length === 0) return;
+
+    const uploadedRun = getUploadedRunById(routeContext.uploadedRunId);
+    if (!uploadedRun) return;
+
+    const processingParams: XrdProcessingParams = {
+      baselineRadius: 42,
+      baselineFraction: xrdParameters.baseline.method === 'asymmetric_ls'
+        ? Math.max(0.05, Math.min(0.3, 0.05 + (Math.log10(xrdParameters.baseline.lambda) - 2) / (9 - 2) * (0.3 - 0.05)))
+        : 0.16,
+      smoothingRadius: Math.floor(xrdParameters.smoothing.windowSize / 2),
+      minProminence: xrdParameters.peakDetection.minProminence,
+      minDistance: xrdParameters.peakDetection.minDistanceDeg,
+      minHeight: xrdParameters.peakDetection.minHeightRatio,
+    };
+
+    try {
+      const result = runXrdPhaseIdentificationAgent({
+        datasetId: uploadedRun.id,
+        sampleName: uploadedRun.sampleIdentity,
+        sourceLabel: uploadedRun.fileName,
+        dataPoints: rawXrdPoints.map(p => ({
+          x: p.x,
+          y: p.y,
+          twoTheta: p.x,
+          intensity: p.y,
+        })),
+      }, processingParams);
+
+      const extractedFeatures: TechniqueFeature[] = result.detectedPeaks.map((peak, index) => ({
+        id: `xrd-peak-${index}`,
+        technique: 'XRD' as const,
+        label: `Peak at ${peak.position.toFixed(2)}°`,
+        position: peak.position,
+        intensity: peak.intensity,
+        relativeIntensity: peak.intensity,
+        prominence: peak.prominence,
+        context: peak.label || 'Unknown phase',
+      }));
+
+      // Identify material features based on selected industry filter
+      const matched = identifyMaterialFeatures(
+        extractedFeatures.map(f => ({
+          position: f.position,
+          intensity: f.intensity
+        })),
+        'XRD',
+        industryFilter
+      );
+
+      const updatedFeatures = extractedFeatures.map((f, index) => {
+        const match = matched[index];
+        if (match && match.assignment !== 'Unassigned') {
+          return {
+            ...f,
+            label: `${match.assignment} (${match.confidence}%)`,
+            context: match.assignment
+          };
+        }
+        return {
+          ...f,
+          label: f.label || 'Unassigned',
+          context: 'Unassigned'
+        };
+      });
+
+      // Synchronize state to Local Storage
+      const updateSuccess = updateUploadedRunProcessingResults(routeContext.uploadedRunId, {
+        extractedFeatures: updatedFeatures,
+        evidenceQuality: {
+          state: 'ready',
+          label: 'Ready for analysis',
+          canInterpret: true,
+          messages: [],
+        },
+        parameterSnapshot: projectId ? {
+          ...getXrdProcessingParams(projectId),
+          provenance: getXrdParameterSnapshot(projectId)
+        } : undefined
+      });
+
+      if (updateSuccess) {
+        triggerReRead();
+      }
+    } catch (e) {
+      console.error('Error auto-processing XRD:', e);
+    }
+  }, [
+    xrdParameters.baseline.method,
+    xrdParameters.baseline.lambda,
+    xrdParameters.smoothing.method,
+    xrdParameters.smoothing.windowSize,
+    xrdParameters.peakDetection.minProminence,
+    xrdParameters.peakDetection.minDistanceDeg,
+    xrdParameters.peakDetection.minHeightRatio,
+    xrdParameters.range.twoThetaMin,
+    xrdParameters.range.twoThetaMax,
+    industryFilter,
+    routeContext.uploadedRunId,
+    isUploadedContext,
+    technique,
+    projectId,
+    rawXrdPoints
+  ]);
+
+  const mappedPeakMarkers = useMemo(() => {
+    if (!graphData?.peaks || graphData.peaks.length === 0) return [];
+    if (technique !== 'xrd' && technique !== 'ftir' && technique !== 'raman') {
+      return graphData.peaks;
+    }
+
+    const matched = identifyMaterialFeatures(
+      graphData.peaks,
+      technique.toUpperCase() as 'XRD' | 'FTIR' | 'RAMAN',
+      industryFilter
+    );
+
+    return graphData.peaks.map((peak, index) => {
+      const match = matched[index];
+      if (match && match.assignment !== 'Unassigned') {
+        return {
+          ...peak,
+          label: `${match.assignment} (${match.confidence}%)`,
+        };
+      }
+      return {
+        ...peak,
+        label: peak.label || 'Unassigned',
+      };
+    });
+  }, [graphData?.peaks, technique, industryFilter]);
+
+  const mappedFeatureRows = useMemo(() => {
+    if (!featureRows || featureRows.length === 0) return [];
+    if (technique !== 'xrd' && technique !== 'ftir' && technique !== 'raman') {
+      return featureRows;
+    }
+
+    const matched = identifyMaterialFeatures(
+      featureRows.map(row => ({
+        position: parseFloat(row.value) || 0,
+        intensity: 100
+      })),
+      technique.toUpperCase() as 'XRD' | 'FTIR' | 'RAMAN',
+      industryFilter
+    );
+
+    return featureRows.map((row, index) => {
+      const match = matched[index];
+      if (match && match.assignment !== 'Unassigned') {
+        return {
+          ...row,
+          label: match.assignment,
+          detail: match.details || row.detail
+        };
+      }
+      return row;
+    });
+  }, [featureRows, technique, industryFilter]);
   const demoLinkSuffix = project && effectiveWorkspaceMode !== 'user' ? '&mode=demo' : '';
   const evidenceRouteSearch = isUploadedContext
     ? buildEvidenceRouteSearch(routeContext)
@@ -1219,6 +1500,9 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
         'Parameters applied to processing session.',
       ),
     );
+    if (technique === 'xrd') {
+      reprocess();
+    }
   };
 
   const getXrdBackendSignalSource = (): XRDBackendSignalSource | null => {
@@ -1234,7 +1518,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
       });
     }
 
-    if (graphData?.type === 'XRD') {
+    if (graphData?.type === 'xrd') {
       return buildXrdBackendSignalSource(graphData.data, {
         uploadedRunId: uploadedRunId ?? undefined,
         fileName: datasetLabel,
@@ -1356,10 +1640,18 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
       }
 
       try {
-        // Read effective parameters from parameter state manager
-        const processingParams = projectId
-          ? getXrdProcessingParams(projectId)
-          : undefined;
+        // Map live xrdParameters React state to XrdProcessingParams
+        const processingParams: XrdProcessingParams = {
+          baselineRadius: 42,
+          baselineFraction: xrdParameters.baseline.method === 'asymmetric_ls'
+            ? Math.max(0.05, Math.min(0.3, 0.05 + (Math.log10(xrdParameters.baseline.lambda) - 2) / (9 - 2) * (0.3 - 0.05)))
+            : 0.16,
+          smoothingRadius: Math.floor(xrdParameters.smoothing.windowSize / 2),
+          minProminence: xrdParameters.peakDetection.minProminence,
+          minDistance: xrdParameters.peakDetection.minDistanceDeg,
+          minHeight: xrdParameters.peakDetection.minHeightRatio,
+        };
+
         const paramSnapshot = projectId
           ? getXrdParameterSnapshot(projectId)
           : { hasOverrides: false, overrideCount: 0, lastUpdatedBy: 'default', updatedAt: null };
@@ -1389,9 +1681,35 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
           context: peak.label || 'Unknown phase',
         }));
 
+        // Identify material features based on selected industry filter
+        const matched = identifyMaterialFeatures(
+          extractedFeatures.map(f => ({
+            position: f.position,
+            intensity: f.intensity
+          })),
+          'XRD',
+          industryFilter
+        );
+
+        const updatedFeatures = extractedFeatures.map((f, index) => {
+          const match = matched[index];
+          if (match && match.assignment !== 'Unassigned') {
+            return {
+              ...f,
+              label: `${match.assignment} (${match.confidence}%)`,
+              context: match.assignment
+            };
+          }
+          return {
+            ...f,
+            label: f.label || 'Unassigned',
+            context: 'Unassigned'
+          };
+        });
+
         // Update uploaded run with processing results
         const updateSuccess = updateUploadedRunProcessingResults(routeContext.uploadedRunId, {
-          extractedFeatures,
+          extractedFeatures: updatedFeatures,
           evidenceQuality: {
             state: 'ready',
             label: 'Ready for analysis',
@@ -1411,6 +1729,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
         });
 
         if (updateSuccess) {
+          triggerReRead();
           setSessionState((prev) =>
             addLog(
               {
@@ -1422,7 +1741,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
               },
               [
                 `[processing] Reprocessed uploaded XRD evidence: ${uploadedRun.fileName}`,
-                `[features] Detected ${extractedFeatures.length} peaks`,
+                `[features] Detected ${updatedFeatures.length} peaks`,
                 paramSnapshot.hasOverrides
                   ? `[params] Applied ${paramSnapshot.overrideCount} custom XRD parameter(s) (last updated by ${paramSnapshot.lastUpdatedBy})`
                   : '[params] Used default XRD parameters',
@@ -1604,6 +1923,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
         });
 
         if (updateSuccess) {
+          triggerReRead();
           setSessionState((prev) =>
             addLog(
               {
@@ -1700,6 +2020,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
         });
 
         if (updateSuccess) {
+          triggerReRead();
           setSessionState((prev) =>
             addLog(
               {
@@ -1798,6 +2119,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
         });
 
         if (updateSuccess) {
+          triggerReRead();
           setSessionState((prev) =>
             addLog(
               {
@@ -2123,7 +2445,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
             source: runtimeContext.sourceMode,
             parseState: datasetStatus,
             processingState: quickAnalysisSession?.processingState ?? processingStateLabel,
-            projectAttachment: project ? formatChemicalFormula(project.title) : 'Not attached',
+            projectAttachment: project ? project.title : 'Not attached',
             lifecycleState: quickAnalysisSession ? getStatusLabel(quickAnalysisSession.status) : quickStatusLabel || processingStateLabel,
             permissionState: getRuntimeBadgeLabel(runtimeContext, 'permission'),
             saveState: saveStateLabel,
@@ -2224,8 +2546,8 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
                 <Graph
                   type={technique}
                   height="100%"
-                  externalData={graphData.data}
-                  peakMarkers={graphData.peaks ?? []}
+                  externalData={technique === 'xrd' && processedXrdData ? processedXrdData : graphData.data}
+                  peakMarkers={mappedPeakMarkers}
                   xAxisLabel={graphData.xLabel}
                   yAxisLabel={graphData.yLabel}
                   showBackground={false}
@@ -2273,7 +2595,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
                       </tr>
                     </thead>
                     <tbody>
-                      {featureRows.map((row, index) => (
+                      {mappedFeatureRows.map((row, index) => (
                         <tr key={`${row.label}-${index}`} className="border-t border-border/60 text-xs">
                           <td className="px-3 py-2 font-semibold text-text-main">{row.label}</td>
                           <td className="px-3 py-2 font-mono text-text-main">{row.value}</td>
@@ -2380,7 +2702,7 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
               <EvidencePanel
                 config={config}
                 focusedEvidence={focusedEvidence}
-                featureRows={featureRows}
+                featureRows={mappedFeatureRows}
                 graphData={graphData}
                 datasetStatus={datasetStatus}
                 project={project}
@@ -2396,28 +2718,53 @@ export function TechniqueWorkspaceShell({ technique, mode = 'project', fileName,
             )}
 
             {activeRightTab === 'Parameters' && (
-              <ParametersPanel
-                config={config}
-                sessionState={sessionState}
-                affectedStepLabels={previewAffectedSteps.map((stepId) => config.pipeline.find((step) => step.id === stepId)?.label || stepId)}
-                onChange={updateParameter}
-                onToggleCheckbox={toggleCheckboxValue}
-                onApply={applyParameters}
-                onReprocess={reprocess}
-                onReset={resetParameters}
-                onSavePreset={savePreset}
-                processingStateLabel={processingStateLabel}
-                sharedOverrideCount={sharedOverrideCount}
-                xrdParameters={xrdParameters}
-                xrdDatasetContext={xrdDatasetContext}
-                xrdHasFiniteSignal={xrdHasFiniteSignal}
-                xrdLocalReferenceProjectId={projectId ?? undefined}
-                xrdLocalReferenceUploadedRunId={routeContext.uploadedRunId ?? quickAnalysisSession?.uploadedRunId ?? undefined}
-                useXrdLocalReferenceForBackend={useXrdLocalReferenceForBackend}
-                onUseXrdLocalReferenceForBackendChange={setUseXrdLocalReferenceForBackend}
-                onXrdParametersChange={setXrdParameters}
-                onXrdDatasetContextChange={setXrdDatasetContext}
-              />
+              <>
+                {/* Analysis Mode / Industry Dropdown */}
+                <div className="mb-3 rounded border border-border bg-background p-2.5 shadow-sm">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label htmlFor="industry-selector" className="block text-[10px] font-bold uppercase tracking-wider text-text-main">
+                      Analysis Mode / Industry
+                    </label>
+                    <span className="rounded bg-primary/10 px-1 py-0.5 text-[9px] font-bold text-primary uppercase">Unified</span>
+                  </div>
+                  <select
+                    id="industry-selector"
+                    value={industryFilter}
+                    onChange={(e) => handleIndustryFilterChange(e.target.value)}
+                    className="w-full h-8 rounded border border-border bg-background px-2 text-xs font-semibold text-text-main focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="All">All Industries (Standard)</option>
+                    <option value="Pharma">Pharmaceuticals & APIs (โหมดตรวจสอบสูตรยา)</option>
+                    <option value="Polymers">Polymers & Petrochemicals (โหมดพลาสติกสิ่งแวดล้อม)</option>
+                    <option value="Advanced Energy">Advanced Energy & Semiconductors (โหมดวัสดุศาสตร์นาโน)</option>
+                    <option value="Minerals/Catalysts">Minerals & Catalysts (โหมดแร่ธาตุและตัวเร่งปฏิกิริยา)</option>
+                  </select>
+                </div>
+
+                <ParametersPanel
+                  config={config}
+                  sessionState={sessionState}
+                  affectedStepLabels={previewAffectedSteps.map((stepId) => config.pipeline.find((step) => step.id === stepId)?.label || stepId)}
+                  onChange={updateParameter}
+                  onToggleCheckbox={toggleCheckboxValue}
+                  onApply={applyParameters}
+                  onReprocess={reprocess}
+                  onReset={resetParameters}
+                  onSavePreset={savePreset}
+                  processingStateLabel={processingStateLabel}
+                  sharedOverrideCount={sharedOverrideCount}
+                  xrdParameters={xrdParameters}
+                  xrdDatasetContext={xrdDatasetContext}
+                  xrdHasFiniteSignal={xrdHasFiniteSignal}
+                  xrdLocalReferenceProjectId={projectId ?? undefined}
+                  xrdLocalReferenceUploadedRunId={routeContext.uploadedRunId ?? quickAnalysisSession?.uploadedRunId ?? undefined}
+                  useXrdLocalReferenceForBackend={useXrdLocalReferenceForBackend}
+                  onUseXrdLocalReferenceForBackendChange={setUseXrdLocalReferenceForBackend}
+                  onXrdParametersChange={setXrdParameters}
+                  onXrdDatasetContextChange={setXrdDatasetContext}
+                  onXrdValidationStatusChange={set7E4ValidationStatus}
+                />
+              </>
             )}
 
             {activeRightTab === 'Graph' && (
@@ -2810,6 +3157,7 @@ function ParametersPanel({
   onUseXrdLocalReferenceForBackendChange,
   onXrdParametersChange,
   onXrdDatasetContextChange,
+  onXrdValidationStatusChange,
 }: {
   config: TechniqueWorkspaceConfig;
   sessionState: WorkspaceSessionState;
@@ -2831,6 +3179,7 @@ function ParametersPanel({
   onUseXrdLocalReferenceForBackendChange: (enabled: boolean) => void;
   onXrdParametersChange: React.Dispatch<React.SetStateAction<XRDParameters>>;
   onXrdDatasetContextChange: React.Dispatch<React.SetStateAction<XRDDatasetContext>>;
+  onXrdValidationStatusChange: (status: boolean) => void;
 }) {
   if (config.id === 'xrd') {
     return (
@@ -2853,6 +3202,7 @@ function ParametersPanel({
         onUseLocalReferenceForBackendChange={onUseXrdLocalReferenceForBackendChange}
         onParametersChange={onXrdParametersChange}
         onDatasetContextChange={onXrdDatasetContextChange}
+        onValidationStatusChange={onXrdValidationStatusChange}
       />
     );
   }
@@ -3092,6 +3442,7 @@ function XRDParametersPanel({
   onUseLocalReferenceForBackendChange,
   onParametersChange,
   onDatasetContextChange,
+  onValidationStatusChange,
 }: {
   config: TechniqueWorkspaceConfig;
   sessionState: WorkspaceSessionState;
@@ -3111,6 +3462,7 @@ function XRDParametersPanel({
   onUseLocalReferenceForBackendChange: (enabled: boolean) => void;
   onParametersChange: React.Dispatch<React.SetStateAction<XRDParameters>>;
   onDatasetContextChange: React.Dispatch<React.SetStateAction<XRDDatasetContext>>;
+  onValidationStatusChange: (status: boolean) => void;
 }) {
   const readiness = getXrdReadinessState({
     hasSignal: hasFiniteSignal,
@@ -3268,7 +3620,7 @@ function XRDParametersPanel({
       setLocalReferenceSaveStatus('Local reference peak list approved for request-scoped backend matching. Toggle remains off until explicitly enabled.');
 
       // Phase X6B: Dispatch 7E.4 validation approval
-      set7E4ValidationStatus(true);
+      onValidationStatusChange(true);
       return;
     }
 
@@ -3276,7 +3628,7 @@ function XRDParametersPanel({
     setLocalReferenceSaveStatus('Local reference draft could not be approved for matching. It remains preview-only.');
 
     // Phase X6B: Dispatch 7E.4 validation rejection on failure
-    set7E4ValidationStatus(false);
+    onValidationStatusChange(false);
   }
 
   function handleRejectLocalReferenceDraft(draftId: string) {
@@ -3288,7 +3640,7 @@ function XRDParametersPanel({
       : 'Saved local reference preview was not found.');
 
     // Phase X6B: Dispatch 7E.4 validation rejection
-    set7E4ValidationStatus(false);
+    onValidationStatusChange(false);
   }
 
   async function handleLocalReferenceFileChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -3422,7 +3774,7 @@ function XRDParametersPanel({
         matchModeOptions={XRD_MATCH_MODE_OPTIONS}
         referenceSourceOptions={XRD_REFERENCE_SOURCE_OPTIONS}
         onEnabledChange={(enabled) => updateParameterStage('referenceMatch', { enabled })}
-        onMatchModeChange={(matchMode) => updateParameterStage('referenceMatch', { matchMode })}
+        onMatchModeChange={(matchMode) => updateParameterStage('referenceMatch', { matchMode: matchMode as XRDMatchMode })}
         onReferenceSourceChange={updateReferenceSource}
         onReferenceSetIdChange={updateReferenceSetId}
         onCandidatePhaseIdsChange={updateCandidatePhaseIds}
@@ -3485,7 +3837,7 @@ function XRDParametersPanel({
         allowPhasePurityClaim={parameters.boundary.allowPhasePurityClaim}
         claimModeOptions={XRD_CLAIM_MODE_OPTIONS}
         onEnabledChange={(enabled) => updateParameterStage('boundary', { enabled })}
-        onClaimModeChange={(claimMode) => updateParameterStage('boundary', { claimMode })}
+        onClaimModeChange={(claimMode) => updateParameterStage('boundary', { claimMode: claimMode as XRDClaimMode })}
         onRequireComplementaryEvidenceChange={(requireComplementaryEvidence) => updateParameterStage('boundary', { requireComplementaryEvidence })}
         onRequireReferenceSetForMatchChange={(requireReferenceSetForMatch) => updateParameterStage('boundary', { requireReferenceSetForMatch })}
         onRequireSampleContextForTargetedMatchChange={(requireSampleContextForTargetedMatch) => updateParameterStage('boundary', { requireSampleContextForTargetedMatch })}

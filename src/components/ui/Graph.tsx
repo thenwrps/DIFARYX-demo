@@ -395,10 +395,13 @@ export function Graph({
     const yMin = Math.min(...yValues);
     const yMax = Math.max(...yValues);
     const yPadding = (yMax - yMin) * 0.1 || 5;
-    const yDomain: [number, number] = [
+    let yDomain: [number, number] = [
       yMin - yPadding,
       yMax + yPadding,
     ];
+    if (type === 'ftir' && yAxisLabel?.includes('Transmittance')) {
+      yDomain = [0, 100];
+    }
     const xPadding = xMin === xMax ? 1 : 0;
     const xDomain: [number, number] = [
       Number.isFinite(xMin) ? xMin - xPadding : settings.range[0],

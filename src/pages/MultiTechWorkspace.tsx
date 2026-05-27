@@ -1100,7 +1100,7 @@ function MultiTechWorkspaceContent() {
       const text = await file.text();
       const parsed = parseUploadedSignalText(file.name, text);
 
-      if (!parsed.ok) {
+      if (parsed.ok === false) {
         setUploadError(parsed.error);
         setUploadErrorQuality(parsed.evidenceQuality);
         return;
@@ -2545,7 +2545,7 @@ ${result.decision}
                               {ref.status.replace('_', ' ')}
                             </span>
                           </div>
-                          <p className="mt-1 text-[9px] leading-relaxed text-text-main">{ref.summary}</p>
+                          <p className="mt-1 text-[9px] leading-relaxed text-text-main">{ref.note}</p>
                         </div>
                       ))}
                     </div>
