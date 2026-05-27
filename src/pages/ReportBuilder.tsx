@@ -6,6 +6,7 @@ import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { useAuth } from '../contexts/AuthContext';
 import { useXrdWorkflowRuntime } from '../context/XrdWorkflowRuntimeContext';
+import { useX7UniversalHook } from '../hooks/useX7UniversalHook';
 import { getProject, getWorkspaceRoute } from '../data/demoProjects';
 import {
   claimStatusColorClass,
@@ -605,6 +606,17 @@ export default function ReportBuilder() {
 }
 
 function ReportBuilderContent({ routeContext }: { routeContext: EvidenceRouteContext }) {
+  const {
+    gmailConnected,
+    uploadToDrive,
+    sendGmailReport,
+  } = useX7UniversalHook();
+
+  const [emailRecipient, setEmailRecipient] = useState('');
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [shareSuccess, setShareSuccess] = useState<string | null>(null);
+  const [isSharing, setIsSharing] = useState(false);
+
   const [searchParams] = useSearchParams();
   const requestedProjectId = searchParams.get('project');
   const isUploadedContext = routeContext.isUploadedContext;
@@ -843,6 +855,55 @@ function ReportBuilderContent({ routeContext }: { routeContext: EvidenceRouteCon
     showFeedback(`Saved ${reportVersion}.`);
   };
 
+  const handleSaveToDrive = async () => {
+    setIsSharing(true);
+    setShareError(null);
+    setShareSuccess(null);
+    try {
+      if (!gmailConnected) {
+        throw new Error('OAuth Scope Exception: Google account not fully connected or active. Please re-authenticate.');
+      }
+      const reportText = reportSections
+        .map((section) => [`## ${section.heading}`, ...section.lines.map((line) => String(line))].join('\n'))
+        .join('\n\n');
+      const filename = `DIFARYX_Report_${currentProject.id}_${Date.now()}.md`;
+      const result = await uploadToDrive(filename, reportText);
+      setShareSuccess(`Report saved successfully to Google Drive. File URL: ${result.url}`);
+    } catch (err: any) {
+      console.error('[Save to Drive Error]', err);
+      setShareError(err.message || String(err));
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  const handleSendEmailSummary = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!emailRecipient.trim()) {
+      setShareError('Please enter a recipient email address.');
+      return;
+    }
+    setIsSharing(true);
+    setShareError(null);
+    setShareSuccess(null);
+    try {
+      if (!gmailConnected) {
+        throw new Error('OAuth Scope Exception: Google account not fully connected or active. Please re-authenticate.');
+      }
+      const reportText = reportSections
+        .map((section) => [`## ${section.heading}`, ...section.lines.map((line) => String(line))].join('\n'))
+        .join('\n\n');
+      const subject = `DIFARYX Research Summary: ${evidenceSnapshot.projectName}`;
+      await sendGmailReport(emailRecipient.trim(), subject, reportText);
+      setShareSuccess(`Research report summary successfully sent to ${emailRecipient}.`);
+    } catch (err: any) {
+      console.error('[Send Email Error]', err);
+      setShareError(err.message || String(err));
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
   const openFutureExportPreview = (actionType: 'google_drive_export_future' | 'gmail_draft_future') => {
     openApprovalPreview(
       actionType,
@@ -867,6 +928,18 @@ function ReportBuilderContent({ routeContext }: { routeContext: EvidenceRouteCon
                 <span className={`rounded-full border px-2 py-0.5 ${getRuntimeBadgeClass(runtimeContext)}`}>
                   {getRuntimeBadgeLabel(runtimeContext)}
                 </span>
+                {gmailConnected ? (
+                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                    ✓ Connected / Active
+                  </span>
+                ) : (
+                  <Link
+                    to="/settings"
+                    className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 hover:bg-amber-100 transition-colors"
+                  >
+                    ⚠ Upgrade Connection Required
+                  </Link>
+                )}
               </div>
               <h1 className="mt-1 truncate text-xl font-bold text-text-main">{evidenceSnapshot.projectName} Evidence Report</h1>
               <p className="mt-1 text-sm text-text-muted">
@@ -898,6 +971,17 @@ function ReportBuilderContent({ routeContext }: { routeContext: EvidenceRouteCon
             </div>
           )}
         </div>
+
+        {shareError && (
+          <div className="mx-4 mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-800 leading-snug">
+            🚨 {shareError}
+          </div>
+        )}
+        {shareSuccess && (
+          <div className="mx-4 mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800 leading-snug">
+            ✅ {shareSuccess}
+          </div>
+        )}
 
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden p-3 lg:grid-cols-[280px_minmax(0,1fr)]">
           <aside className="min-h-0 overflow-y-auto rounded-lg border border-border bg-surface p-3">
@@ -950,6 +1034,52 @@ function ReportBuilderContent({ routeContext }: { routeContext: EvidenceRouteCon
                 <ApprovalLedgerPanel projectId={currentProject.id} bundleId={evidenceBundle.bundleId} limit={4} compact />
               </div>
             )}
+            {/* Hybrid Output: Export & Dispatch panel */}
+            <div className="mt-3 rounded-md border border-slate-200 bg-white p-3 shadow-sm">
+              <span className="text-xs font-bold text-slate-800 block mb-2">Export & Dispatch</span>
+              
+              {shareError && (
+                <div className="mb-2.5 rounded border border-red-200 bg-red-50 p-2 text-[10px] font-semibold text-red-800 leading-snug">
+                  🚨 {shareError}
+                </div>
+              )}
+              {shareSuccess && (
+                <div className="mb-2.5 rounded border border-emerald-200 bg-emerald-50 p-2 text-[10px] font-semibold text-emerald-800 leading-snug">
+                  ✅ {shareSuccess}
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <button
+                  onClick={handleSaveToDrive}
+                  disabled={isSharing}
+                  className="w-full inline-flex h-8 items-center justify-center rounded-md bg-blue-600 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm"
+                >
+                  {isSharing ? 'Processing...' : 'Save to Drive'}
+                </button>
+
+                <form onSubmit={handleSendEmailSummary} className="space-y-2 pt-2 border-t border-slate-100">
+                  <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    Recipient Email:
+                    <input
+                      type="email"
+                      value={emailRecipient}
+                      onChange={(e) => setEmailRecipient(e.target.value)}
+                      placeholder="e.g. lead@difaryx.com"
+                      className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 focus:outline-none"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={isSharing}
+                    className="w-full inline-flex h-8 items-center justify-center rounded-md border border-blue-200 bg-white text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-50 transition-colors shadow-sm"
+                  >
+                    Send Email Summary
+                  </button>
+                </form>
+              </div>
+            </div>
+
             <div className="mt-3 flex flex-col gap-2">
               <Link to={isUploadedContext && uploadedRouteSearch
                 ? `/notebook?${uploadedRouteSearch}&template=research`
