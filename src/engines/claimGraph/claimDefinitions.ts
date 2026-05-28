@@ -67,8 +67,11 @@ export const CLAIM_DEFINITIONS: ClaimNode[] = [
 ];
 
 /**
- * Technique authority mapping for each claim type
- * Defines which techniques have primary, supporting, validation, or context authority
+ * Technique authority mapping for each claim type.
+ *
+ * Defines which techniques have primary, supporting, validation, or
+ * context authority for each scientific claim. Covers all 11 registered
+ * characterization techniques.
  */
 export const TECHNIQUE_AUTHORITY: Record<string, Record<Technique, TechniqueAuthority>> = {
   spinel_ferrite_assignment: {
@@ -76,45 +79,65 @@ export const TECHNIQUE_AUTHORITY: Record<string, Record<Technique, TechniqueAuth
     Raman: 'primary',
     XPS: 'context',
     FTIR: 'supporting',
+    XAS: 'supporting',
     TEM: 'validation',
     BET: 'context',
     TPD: 'context',
+    NMR: 'context',
+    SEM: 'validation',
+    XRF: 'context',
   },
   oxidation_state_consistency: {
     XRD: 'context',
     Raman: 'context',
     XPS: 'primary',
     FTIR: 'context',
+    XAS: 'primary',
     TEM: 'validation',
     BET: 'context',
     TPD: 'context',
+    NMR: 'context',
+    SEM: 'context',
+    XRF: 'supporting',
   },
   metal_oxygen_bonding: {
     XRD: 'context',
     Raman: 'supporting',
     XPS: 'supporting',
     FTIR: 'primary',
+    XAS: 'primary',
     TEM: 'context',
     BET: 'context',
     TPD: 'context',
+    NMR: 'context',
+    SEM: 'context',
+    XRF: 'context',
   },
   surface_species_presence: {
     XRD: 'context',
     Raman: 'context',
     XPS: 'primary',
     FTIR: 'primary',
+    XAS: 'context',
     TEM: 'context',
     BET: 'context',
     TPD: 'validation',
+    NMR: 'context',
+    SEM: 'context',
+    XRF: 'context',
   },
   catalytic_activation_readiness: {
     XRD: 'supporting',
     Raman: 'supporting',
     XPS: 'validation',
     FTIR: 'validation',
+    XAS: 'supporting',
     TEM: 'primary',
     BET: 'validation',
     TPD: 'validation',
+    NMR: 'context',
+    SEM: 'validation',
+    XRF: 'context',
   },
 };
 
@@ -169,6 +192,28 @@ export const EVIDENCE_CONCEPTS: Record<string, string> = {
   'tpd-active-sites': 'active-surface-sites',
   'tpd-passivated': 'surface-passivation',
   'tpd-inactive': 'inactive-surface-state',
+
+  // XAS concepts
+  'xas-edge-shift': 'oxidation-state-change',
+  'xas-coordination': 'local-coordination-environment',
+  'xas-pre-edge': 'electronic-structure-probe',
+  'xas-white-line': 'unoccupied-density-of-states',
+
+  // NMR concepts
+  'nmr-chemical-shift': 'local-atomic-environment',
+  'nmr-peak-broadening': 'structural-disorder',
+  'nmr-multiplicity': 'molecular-connectivity',
+
+  // SEM concepts
+  'sem-morphology': 'surface-morphology',
+  'sem-grain-size': 'grain-size-distribution',
+  'sem-porosity': 'porous-structure',
+  'sem-eds-elemental': 'elemental-composition-mapping',
+
+  // XRF concepts
+  'xrf-elemental': 'bulk-elemental-composition',
+  'xrf-trace': 'trace-element-detection',
+  'xrf-ratio': 'elemental-ratio-analysis',
 };
 
 /**

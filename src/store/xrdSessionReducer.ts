@@ -331,6 +331,38 @@ export function xrdSessionReducer(
       };
     }
 
+    case 'CREATE_SESSION': {
+      return {
+        ...state,
+        projectId: event.payload.projectId || 'guest-sandbox',
+        userName: event.payload.userName || 'Scientific Researcher',
+        userEmail: event.payload.userEmail || 'Not Connected',
+        organization: event.payload.organization || 'Independent Research / Affiliated Institution',
+        userRole: event.payload.userRole,
+        updatedAt: now,
+      };
+    }
+
+    case 'LOAD_SESSION': {
+      return {
+        ...state,
+        ...event.payload,
+        projectId: event.payload.projectId || 'guest-sandbox',
+        updatedAt: now,
+      };
+    }
+
+    case 'UPDATE_USER_CONTEXT': {
+      return {
+        ...state,
+        userName: event.payload.userName !== undefined ? event.payload.userName : state.userName,
+        userEmail: event.payload.userEmail !== undefined ? event.payload.userEmail : state.userEmail,
+        organization: event.payload.organization !== undefined ? event.payload.organization : state.organization,
+        userRole: event.payload.userRole !== undefined ? event.payload.userRole : state.userRole,
+        updatedAt: now,
+      };
+    }
+
     default:
       return state;
   }

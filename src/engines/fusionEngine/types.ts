@@ -1,6 +1,14 @@
 // Fusion Engine Type Definitions
+//
+// v2.0 — Universal Technique Refactor
+// Imports the canonical 11-technique union from the single source of truth.
+// All downstream engines (router, claim graph, state machine) now share
+// the same Technique type.
 
-export type Technique = 'XRD' | 'Raman' | 'XPS' | 'FTIR';
+import type { Technique } from '../../types/universalTechnique';
+
+// Re-export for backward compatibility
+export type { Technique };
 
 export type EvidenceCategory = 'crystalline' | 'non-crystalline';
 

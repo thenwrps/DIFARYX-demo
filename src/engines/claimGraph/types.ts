@@ -1,14 +1,18 @@
 /**
- * Claim Graph + Evidence Propagation Engine - Type Definitions
- * 
+ * Claim Graph + Evidence Propagation Engine — Type Definitions
+ *
+ * v2.0 — Universal Technique Refactor
  * Pure graph-based scientific reasoning without numeric scores, weights, or thresholds.
  * All reasoning is relation-based and deterministic.
+ *
+ * Technique type is now imported from the single source of truth
+ * in src/types/universalTechnique.ts, ensuring all 11 modules are supported.
  */
 
-/**
- * Characterization technique types
- */
-export type Technique = 'XRD' | 'Raman' | 'XPS' | 'FTIR' | 'TEM' | 'BET' | 'TPD';
+import type { Technique } from '../../types/universalTechnique';
+
+// Re-export for backward compatibility
+export type { Technique };
 
 /**
  * Evidence relation types - how evidence connects to claims

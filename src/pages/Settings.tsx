@@ -1,24 +1,16 @@
-import React, { useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Bot, Database, Download, Link2, User } from 'lucide-react';
 import { DashboardLayout } from '../components/layout/DashboardLayout';
 import { Card } from '../components/ui/Card';
-import { DEFAULT_PROJECT_ID } from '../data/demoProjects';
 import { ConnectedAccountStatus } from '../components/runtime/ConnectedAccountStatus';
 import { useAuth } from '../contexts/AuthContext';
 import { useX7UniversalHook } from '../hooks/useX7UniversalHook';
+import { useXrdWorkflowRuntime } from '../context/XrdWorkflowRuntimeContext';
 import {
   getDefaultConnectedAccountState,
   getGoogleConnectedShellState,
 } from '../runtime/connectedAccounts';
-import {
-  getEffectiveWorkspaceMode,
-  getStoredWorkspaceMode,
-  getWorkspaceModeBadgeClass,
-  getWorkspaceModeLabel,
-  setWorkspaceMode,
-  toWorkspaceMode,
-} from '../utils/workspaceMode';
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
@@ -50,13 +42,14 @@ function ToggleRow({ label, description, checked = true }: { label: string; desc
 export default function SettingsPage() {
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
-  
+  const { currentSession, dispatchWorkflowEvent } = useXrdWorkflowRuntime();
+
   // Connect X7E Enterprise Hook
-  const { 
-    gmailConnected, 
-    connectGmail, 
-    disconnectGmail, 
-    uploadToDrive, 
+  const {
+    gmailConnected,
+    connectGmail,
+    disconnectGmail,
+    uploadToDrive,
     scanGmail,
     connectedEmail,
     brightDataError
@@ -67,37 +60,50 @@ export default function SettingsPage() {
   const [apiSuccess, setApiSuccess] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  const googleEmail = connectedEmail;
+  // Synchronize Google Profile email dynamically via OAuth token if connected
+  useEffect(() => {
+    if (currentSession) {
+      const email = gmailConnected ? connectedEmail : 'Not Connected';
+      const name = gmailConnected ? (user?.name || 'Scientific Researcher') : 'Scientific Researcher';
+      const org = gmailConnected ? 'Google Authorized' : 'Independent Research / Affiliated Institution';
 
-  const effectiveWorkspaceMode = getEffectiveWorkspaceMode({
-    authUser: user,
-    searchParams,
-    storedMode: getStoredWorkspaceMode(),
-  });
-  const workspaceMode = toWorkspaceMode(effectiveWorkspaceMode);
-  const localAccountState = getDefaultConnectedAccountState();
+      if (
+        currentSession.userEmail !== email ||
+        currentSession.userName !== name ||
+        currentSession.organization !== org
+      ) {
+        dispatchWorkflowEvent({
+          type: 'UPDATE_USER_CONTEXT',
+          payload: {
+            userEmail: email,
+            userName: name,
+            organization: org,
+          },
+        });
+      }
+    }
+  }, [gmailConnected, connectedEmail, user, currentSession, dispatchWorkflowEvent]);
+
+  const profileName = currentSession?.userName || 'Scientific Researcher';
+  const profileEmail = currentSession?.userEmail || 'Not Connected';
+  const profileOrg = currentSession?.organization || 'Independent Research / Affiliated Institution';
 
   // Build real-time synchronized Google Account State
+  const isCloudConnected = profileEmail !== 'Not Connected';
+  const localAccountState = getDefaultConnectedAccountState();
+
   const googleAccountShell = {
     ...getGoogleConnectedShellState(),
-    status: gmailConnected ? ('connected_active' as const) : ('approval_required' as const),
-    providerLabel: gmailConnected ? `Google Workspace (Active: ${googleEmail})` : 'Google preview connection',
+    status: isCloudConnected ? ('connected_active' as const) : ('approval_required' as const),
+    providerLabel: isCloudConnected ? `Google Workspace (Active: ${profileEmail})` : 'Google preview connection',
     capabilities: getGoogleConnectedShellState().capabilities.map(cap => ({
       ...cap,
-      status: gmailConnected ? ('connected_active' as const) : cap.status,
-      description: gmailConnected 
+      status: isCloudConnected ? ('connected_active' as const) : cap.status,
+      description: isCloudConnected
         ? `Authorized via User OAuth 2.0. Service connection is live.`
         : cap.description
     }))
   };
-
-  const isGoogleUser = user?.provider === 'google' || gmailConnected;
-  const signedInEmail = gmailConnected 
-    ? googleEmail 
-    : (isGoogleUser ? user?.email ?? 'Google account connected' : 'Not connected');
-
-  const mockDriveWorkspacePath = '/workspace/xrd?project=cu-fe2o4-spinel&mode=demo&source=google_drive_connected&driveFileId=drive-cufe2o4-xrd';
-  const mockDriveReportPath = '/reports?project=cu-fe2o4-spinel&mode=demo&source=google_drive_connected&driveFileId=drive-cufe2o4-xrd';
 
   // Handler for real Drive Import testing with catch-block Hard Lock alerts
   const handlePreviewDriveImportClick = async (e: React.MouseEvent) => {
@@ -107,8 +113,8 @@ export default function SettingsPage() {
     setApiSuccess(null);
 
     try {
-      if (!gmailConnected) {
-        throw new Error('OAuth Authentication Guardrail: No active Google Workspace connection. Please click "Connect Google Workspace" first.');
+      if (!isCloudConnected) {
+        throw new Error('OAuth Authentication Guardrail: No active Google Workspace connection. Please click "Connect Cloud Account (OAuth)" first.');
       }
 
       console.log('[Settings Page] Initiating Gmail search for lab results...');
@@ -123,7 +129,7 @@ Date: ${firstEmail?.receivedAt || 'N/A'}
 Payload details: ${firstEmail?.body || 'No description'}`;
 
       const uploadResult = await uploadToDrive('difaryx_lab_import.txt', payloadContent);
-      
+
       setApiSuccess(
         `Gmail scan completed (fetched ${emails.length} items). File successfully uploaded to Google Drive Folder (ID: ${uploadResult.id})!`
       );
@@ -145,57 +151,18 @@ Payload details: ${firstEmail?.body || 'No description'}`;
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <Card className="p-5 xl:col-span-2">
-            <h2 className="text-sm font-semibold flex items-center gap-2"><Database size={16} className="text-primary" /> Demo Dataset / Deterministic Scientific Workflow</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-relaxed text-text-muted">
-              This demo uses a deterministic scientific workflow for reliability. The same structured pipeline is designed to connect with model and tool-based execution layers.
-            </p>
-          </Card>
-
-          <Card className="p-5 xl:col-span-2">
-            <h2 className="text-sm font-semibold flex items-center gap-2"><User size={16} className="text-primary" /> Workspace Mode</h2>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <span className={`rounded-full border px-3 py-1 text-xs font-bold ${getWorkspaceModeBadgeClass(workspaceMode)}`}>
-                {getWorkspaceModeLabel(workspaceMode)}
-              </span>
-              <span className={`rounded-full border px-3 py-1 text-xs font-bold ${gmailConnected ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-amber-300 bg-amber-50 text-amber-700'}`}>
-                {gmailConnected ? 'External writes active' : 'External writes disabled'}
-              </span>
-            </div>
-            <p className="mt-3 text-sm text-text-muted">
-              Google account: <span className="font-semibold text-text-main">{signedInEmail}</span>. Drive and Gmail are active when authorized via OAuth.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Link
-                to="/dashboard"
-                onClick={() => setWorkspaceMode('user')}
-                className="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-xs font-bold text-text-main hover:bg-surface-hover"
-              >
-                User Workspace
-              </Link>
-              <Link
-                to="/dashboard?mode=demo"
-                onClick={() => setWorkspaceMode('demo')}
-                className="inline-flex h-8 items-center rounded-md border border-primary bg-primary/10 px-3 text-xs font-bold text-primary hover:bg-primary/20"
-              >
-                Demo Mode
-              </Link>
-            </div>
-          </Card>
-
           <Card className="p-5">
             <h2 className="text-sm font-semibold flex items-center gap-2"><User size={16} className="text-primary" /> Profile</h2>
             <div className="mt-5 grid gap-4">
-              <Field label="Name" value={user?.name ?? 'Demo Researcher'} />
-              <Field label="Email" value={signedInEmail} />
-              <Field label="Organization" value={user?.organization ?? (gmailConnected ? 'Google Authorized' : 'DIFARYX Demo Lab')} />
+              <Field label="Name" value={profileName} />
+              <Field label="Email" value={profileEmail} />
+              <Field label="Organization" value={profileOrg} />
             </div>
           </Card>
 
           <Card className="p-5">
             <h2 className="text-sm font-semibold flex items-center gap-2"><Database size={16} className="text-primary" /> Data Handling</h2>
             <div className="mt-5 grid gap-4">
-              <Field label="Default project" value={DEFAULT_PROJECT_ID} />
               <ToggleRow label="Local demo mode" description="Use bundled project data without a backend connection." />
               <Field label="File retention" value="Demo files reset between production sessions" />
             </div>
@@ -222,7 +189,7 @@ Payload details: ${firstEmail?.body || 'No description'}`;
 
           <Card className="p-5 xl:col-span-2">
             <h2 className="text-sm font-semibold flex items-center gap-2 mb-3"><Link2 size={16} className="text-primary" /> Connected Accounts</h2>
-            
+
             {/* Inline Alert Panel for Hard Lock API error handling */}
             {apiError && (
               <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-800 leading-snug">
@@ -240,46 +207,55 @@ Payload details: ${firstEmail?.body || 'No description'}`;
               </div>
             )}
 
-            <p className="mb-4 text-sm leading-relaxed text-text-muted">
-              Connect to your Google Workspace account to enable live synchronization with Gmail (Lab notifications scanning) and Google Drive (Research reports backup).
-            </p>
-
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <ConnectedAccountStatus state={localAccountState} capabilities={['storage_future']} />
-              <ConnectedAccountStatus state={googleAccountShell} capabilities={['drive_import', 'drive_export_future', 'gmail_draft_future']} />
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-md border border-blue-200 bg-blue-50/60 p-4">
-              <div>
-                <span className="text-xs font-bold text-blue-900 block">Workspace Actions</span>
-                <span className="text-[11px] text-blue-700">Trigger live API pipelines (Drive Upload & Gmail scan) or connect credentials.</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {!gmailConnected ? (
-                  <button 
-                    onClick={connectGmail}
-                    className="inline-flex h-8 items-center rounded-md bg-blue-600 px-3.5 text-xs font-bold text-white hover:bg-blue-700 shadow-sm"
-                  >
-                    Connect Google Workspace
-                  </button>
-                ) : (
-                  <button 
-                    onClick={disconnectGmail}
-                    className="inline-flex h-8 items-center rounded-md border border-red-200 bg-white px-3.5 text-xs font-bold text-red-600 hover:bg-red-50 shadow-sm"
-                  >
-                    Disconnect Account
-                  </button>
-                )}
-                
-                <button 
-                  onClick={handlePreviewDriveImportClick}
-                  disabled={isLoading}
-                  className="inline-flex h-8 items-center rounded-md border border-blue-300 bg-white px-3 text-xs font-bold text-blue-700 hover:bg-blue-50 shadow-sm disabled:opacity-50"
+            {!isCloudConnected ? (
+              <div className="flex flex-col items-center justify-center border border-dashed border-border rounded-lg p-8 text-center bg-background/30">
+                <Link2 size={32} className="text-text-muted mb-3" />
+                <h3 className="text-sm font-semibold text-text-main">No Connected Cloud Accounts</h3>
+                <p className="text-xs text-text-muted mt-1 mb-4 max-w-sm">
+                  Connect to your cloud account to sync active sessions, export research records, and run scientific workflows.
+                </p>
+                <button
+                  onClick={connectGmail}
+                  className="inline-flex h-8 items-center rounded-md bg-blue-600 px-4 text-xs font-bold text-white hover:bg-blue-700 shadow-sm transition-colors"
                 >
-                  {isLoading ? 'Processing...' : 'Preview Drive import'}
+                  Connect Cloud Account (OAuth)
                 </button>
               </div>
-            </div>
+            ) : (
+              <>
+                <p className="mb-4 text-sm leading-relaxed text-text-muted">
+                  Connect to your Google Workspace account to enable live synchronization with Gmail (Lab notifications scanning) and Google Drive (Research reports backup).
+                </p>
+
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <ConnectedAccountStatus state={localAccountState} capabilities={['storage_future']} />
+                  <ConnectedAccountStatus state={googleAccountShell} capabilities={['drive_import', 'drive_export_future', 'gmail_draft_future']} />
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-md border border-blue-200 bg-blue-50/60 p-4">
+                  <div>
+                    <span className="text-xs font-bold text-blue-900 block">Workspace Actions</span>
+                    <span className="text-[11px] text-blue-700">Trigger live API pipelines (Drive Upload & Gmail scan) or connect credentials.</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={disconnectGmail}
+                      className="inline-flex h-8 items-center rounded-md border border-red-200 bg-white px-3.5 text-xs font-bold text-red-600 hover:bg-red-50 shadow-sm"
+                    >
+                      Disconnect Account
+                    </button>
+
+                    <button
+                      onClick={handlePreviewDriveImportClick}
+                      disabled={isLoading}
+                      className="inline-flex h-8 items-center rounded-md border border-blue-300 bg-white px-3 text-xs font-bold text-blue-700 hover:bg-blue-50 shadow-sm disabled:opacity-50"
+                    >
+                      {isLoading ? 'Processing...' : 'Preview Drive import'}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </Card>
         </div>
       </div>

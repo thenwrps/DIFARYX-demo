@@ -7,11 +7,15 @@ import type {
 
 export interface XrdWorkflowSession {
   sessionId: string;
-  projectId?: string;
+  projectId: string;
   uploadedRunId?: string;
   fileName?: string;
   createdAt: string;
   updatedAt: string;
+  userName?: string;
+  userEmail?: string;
+  organization?: string;
+  userRole?: string;
   runtime: XrdWorkflowRuntimeState;
   datasetContext?: XrdWorkflowDatasetContext;
   processing?: XrdWorkflowProcessingState;
@@ -113,5 +117,8 @@ export type XrdWorkflowEvent =
   | { type: 'APPEND_REFERENCE_MATCH'; payload: { referenceData: any; phaseSummary: any } }
   | { type: 'SET_VALIDATION_GAPS'; payload: { gaps: string[] } }
   | { type: 'PUBLISH_SESSION'; payload: { versionTag: string } }
-  | { type: 'REVERT_TO_PUBLISHED' };
+  | { type: 'REVERT_TO_PUBLISHED' }
+  | { type: 'CREATE_SESSION'; payload: { projectId?: string; userName?: string; userEmail?: string; organization?: string; userRole?: string } }
+  | { type: 'LOAD_SESSION'; payload: Partial<XrdWorkflowSession> }
+  | { type: 'UPDATE_USER_CONTEXT'; payload: { userName?: string; userEmail?: string; organization?: string; userRole?: string } };
 

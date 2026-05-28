@@ -15,6 +15,7 @@ import type {
   EvidenceRole,
   TechniqueAuthority,
 } from './types';
+import { getTechniqueMetadata } from '../../types/universalTechnique';
 import {
   CLAIM_DEFINITIONS,
   getEvidenceConcept,
@@ -23,19 +24,14 @@ import {
 } from './claimDefinitions';
 
 /**
- * Get unit for a technique
+ * Get primary unit for a technique from the Universal Registry.
+ *
+ * Uses the single source of truth (TECHNIQUE_REGISTRY) instead of a
+ * hardcoded map, ensuring all 11 techniques are covered automatically.
  */
 function getUnitForTechnique(technique: Technique): string {
-  const unitMap: Record<Technique, string> = {
-    XRD: '° 2θ',
-    Raman: 'cm⁻¹',
-    XPS: 'eV',
-    FTIR: 'cm⁻¹',
-    TEM: 'nm',
-    BET: 'm²/g',
-    TPD: '°C',
-  };
-  return unitMap[technique] || '';
+  const meta = getTechniqueMetadata(technique);
+  return meta?.primaryUnit ?? '';
 }
 
 /**

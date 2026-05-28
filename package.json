@@ -26,6 +26,7 @@
     "@eslint/js": "^10.0.1",
     "@remotion/cli": "^4.0.459",
     "@tailwindcss/postcss": "^4.2.4",
+    "@types/node": "^25.9.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
@@ -37,6 +38,7 @@
     "postcss": "^8.5.10",
     "remotion": "^4.0.459",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.22.3",
     "typescript": "^6.0.3",
     "vite": "^8.0.10"
   }

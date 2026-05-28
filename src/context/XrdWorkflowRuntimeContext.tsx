@@ -319,10 +319,15 @@ export function XrdWorkflowRuntimeProvider({ children }: XrdWorkflowRuntimeProvi
 
       const handoffState = buildXrdWorkflowSession({
         sessionId: draftSession.sessionId,
+        projectId: draftSession.projectId || 'guest-sandbox',
         isProcessing: draftSession.runtime.status === 'processing',
         activeStage: draftSession.runtime.activeStage,
         isValidated7E4: draftSession.validation?.isValidated7E4 ?? false,
         evidenceRecord: tempEvidenceRecordForHandoff,
+        userName: draftSession.userName,
+        userEmail: draftSession.userEmail,
+        organization: draftSession.organization,
+        userRole: draftSession.userRole,
       }).xrdWorkflowHandoffState;
 
       return {
@@ -366,9 +371,13 @@ export function XrdWorkflowRuntimeProvider({ children }: XrdWorkflowRuntimeProvi
   );
 
   // Canonical Session State (Shadow Layer)
-  const [currentSession, setCurrentSession] = useState<XrdWorkflowSession | null>(
-    draftSession,
-  );
+  const [currentSession, setCurrentSession] = useState<XrdWorkflowSession | null>(() => {
+    if (!draftSession) return null;
+    return {
+      ...draftSession,
+      projectId: draftSession.projectId || 'guest-sandbox',
+    };
+  });
 
   // Synchronize currentSession when currentEvidence changes
   useEffect(() => {
@@ -383,10 +392,15 @@ export function XrdWorkflowRuntimeProvider({ children }: XrdWorkflowRuntimeProvi
         }
         return buildXrdWorkflowSession({
           sessionId: prev?.sessionId,
+          projectId: prev?.projectId || currentEvidence.projectId || 'guest-sandbox',
           isProcessing,
           activeStage,
           isValidated7E4,
           evidenceRecord: currentEvidence,
+          userName: prev?.userName,
+          userEmail: prev?.userEmail,
+          organization: prev?.organization,
+          userRole: prev?.userRole,
         });
       });
     } else {
@@ -414,6 +428,7 @@ export function XrdWorkflowRuntimeProvider({ children }: XrdWorkflowRuntimeProvi
     setCurrentSession((prevSession) => {
       // 1. Build initial session if not present
       const activeSession = prevSession || buildXrdWorkflowSession({
+        projectId: currentEvidence?.projectId || 'guest-sandbox',
         isProcessing,
         activeStage,
         isValidated7E4,
@@ -486,10 +501,15 @@ export function XrdWorkflowRuntimeProvider({ children }: XrdWorkflowRuntimeProvi
 
         const handoffState = buildXrdWorkflowSession({
           sessionId: nextSession.sessionId,
+          projectId: nextSession.projectId || tempEvidenceRecordForHandoff.projectId || 'guest-sandbox',
           isProcessing: nextIsProcessing,
           activeStage: nextLegacyStage,
           isValidated7E4: nextIsValidated7E4,
           evidenceRecord: tempEvidenceRecordForHandoff,
+          userName: nextSession.userName,
+          userEmail: nextSession.userEmail,
+          organization: nextSession.organization,
+          userRole: nextSession.userRole,
         }).xrdWorkflowHandoffState;
 
         const reconstructedEvidence: XRDBackendEvidenceRecord = {

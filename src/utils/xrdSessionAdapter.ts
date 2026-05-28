@@ -23,6 +23,10 @@ export interface BuildXrdSessionParams {
   errorMessage?: string;
   datasetContext?: XRDDatasetContext | null;
   evidenceRecord?: XRDBackendEvidenceRecord | null;
+  userName?: string;
+  userEmail?: string;
+  organization?: string;
+  userRole?: string;
 }
 
 /**
@@ -241,11 +245,15 @@ export function buildXrdWorkflowSession(params: BuildXrdSessionParams): XrdWorkf
 
   return {
     sessionId: resolvedSessionId,
-    projectId: projectId || evidenceRecord?.projectId,
+    projectId: projectId || evidenceRecord?.projectId || 'guest-sandbox',
     uploadedRunId: uploadedRunId || evidenceRecord?.uploadedRunId,
     fileName: fileName || evidenceRecord?.fileName,
     createdAt,
     updatedAt,
+    userName: params.userName || 'Scientific Researcher',
+    userEmail: params.userEmail || 'Not Connected',
+    organization: params.organization || 'Independent Research / Affiliated Institution',
+    userRole: params.userRole,
     runtime,
     datasetContext,
     processing,
