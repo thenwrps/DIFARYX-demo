@@ -92,6 +92,8 @@ import {
   type EvidenceRouteContext,
 } from '../utils/evidenceRouteContext';
 import { runWhenIdle } from '../utils/idle';
+import { buildClaimBoundaryArtifact } from '../utils/claimBoundaryArtifact';
+import type { ClaimBoundarySignals } from '../types/researchEvidence';
 
 function reportTypeLabel(mode: NotebookTemplateMode) {
   if (mode === 'rd') return 'Technical Evidence Report';
@@ -682,6 +684,9 @@ function ReportBuilderContent({ routeContext }: { routeContext: EvidenceRouteCon
   const [isSharing, setIsSharing] = useState(false);
   const [activeTab, setActiveTab] = useState<'standard' | 'ai'>('standard');
   const [aiDraft, setAiDraft] = useState<string | null>(null);
+  // Raw structured reasoning signals preserved alongside the rendered draft
+  // (Requirement B) so audits / explainability consume signals, not prose.
+  const [aiSignals, setAiSignals] = useState<ClaimBoundarySignals | null>(null);
   const [isDrafting, setIsDrafting] = useState(false);
   const [aiWarning, setAiWarning] = useState<string | null>(null);
 
@@ -1045,6 +1050,89 @@ function ReportBuilderContent({ routeContext }: { routeContext: EvidenceRouteCon
     return text;
   };
 
+  /**
+   * Parses Vertex AI's JSON response into structured reasoning signals.
+   * Returns null when the output is not structured (so the caller falls back to
+   * the deterministic draft instead of rendering raw model prose).
+   */
+  const parseVertexSignals = (
+    text: string,
+  ): { confidence: number; contradictions: string[]; missingValidation: string[] } | null => {
+    let parsed: any;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      // Vertex may wrap JSON in a markdown code fence — try to extract it.
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) return null;
+      try {
+        parsed = JSON.parse(match[0]);
+      } catch {
+        return null;
+      }
+    }
+    if (!parsed || typeof parsed !== 'object') return null;
+
+    const rawConfidence =
+      typeof parsed.confidence === 'number' ? parsed.confidence : Number(parsed.confidence);
+    const confidence = Number.isFinite(rawConfidence)
+      ? rawConfidence > 1
+        ? rawConfidence / 100
+        : rawConfidence
+      : NaN;
+    const contradictions = Array.isArray(parsed.contradictions)
+      ? parsed.contradictions.map((c: any) => String(c))
+      : [];
+    const missingValidation = Array.isArray(parsed.missingValidation)
+      ? parsed.missingValidation.map((m: any) => String(m))
+      : Array.isArray(parsed.validationGaps)
+        ? parsed.validationGaps.map((m: any) => String(m))
+        : [];
+    const evidenceStrength = String(parsed.evidenceStrength || '').toLowerCase();
+
+    // Require at least one recognizable structured signal.
+    const hasSignal =
+      Number.isFinite(confidence) ||
+      !!evidenceStrength ||
+      contradictions.length > 0 ||
+      missingValidation.length > 0;
+    if (!hasSignal) return null;
+
+    // Map a textual evidenceStrength to a confidence proxy when none provided.
+    let resolvedConfidence = confidence;
+    if (!Number.isFinite(resolvedConfidence)) {
+      resolvedConfidence = evidenceStrength.includes('strong')
+        ? 0.85
+        : evidenceStrength.includes('moderate')
+          ? 0.65
+          : evidenceStrength.includes('weak')
+            ? 0.35
+            : 0.5;
+    }
+
+    return { confidence: resolvedConfidence, contradictions, missingValidation };
+  };
+
+  /**
+   * Composes the user-facing AI draft from the deterministically rendered claim
+   * boundary (never from raw Vertex prose).
+   */
+  const renderDraftFromArtifact = (
+    artifact: ReturnType<typeof buildClaimBoundaryArtifact>,
+    payload: any,
+  ): string => {
+    const lines: string[] = [];
+    lines.push(`# AI-Assisted Evidence Summary: ${payload.projectName || 'Project'}\n`);
+    lines.push(`**Objective:** ${payload.objective || 'N/A'}\n`);
+    lines.push(`**Techniques:** ${(payload.availableTechniques || []).join(', ') || 'N/A'}\n`);
+    lines.push(`## Claim Boundary (deterministic rendering of Vertex reasoning signals)\n`);
+    artifact.renderedClaimBoundary.forEach((line) => lines.push(`- ${line}`));
+    lines.push(
+      `\n_Reasoning signals provided by Vertex AI; wording produced by the deterministic presentation layer._`,
+    );
+    return lines.join('\n');
+  };
+
   const handleDraftWithAI = async () => {
     if (!localStorage.getItem('difaryx_google_user_token')) {
       setShareError('OAuth Connection Required: Please connect your Google account in Settings to enable Vertex AI report drafting.');
@@ -1080,14 +1168,32 @@ function ReportBuilderContent({ routeContext }: { routeContext: EvidenceRouteCon
     try {
       const result = await analyzeWithVertexAI(payload);
       const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) {
-        setAiDraft(text);
-      } else {
+      if (!text) {
         throw new Error('Vertex AI response format is unexpected.');
       }
+
+      // Vertex emits STRUCTURED reasoning signals only. It never authors the
+      // final claim-boundary wording. Parse signals, then render the draft
+      // deterministically through claimBoundaryPresentation.ts.
+      const parsed = parseVertexSignals(text);
+      if (!parsed) {
+        throw new Error('Vertex AI did not return structured reasoning signals.');
+      }
+
+      const technique = evidenceSnapshot.availableTechniques?.[0] || 'XRD';
+      const artifact = buildClaimBoundaryArtifact({
+        technique,
+        provider: 'vertex',
+        confidence: parsed.confidence,
+        contradictions: parsed.contradictions,
+        missingValidation: parsed.missingValidation,
+      });
+      setAiSignals(artifact.signals);
+      setAiDraft(renderDraftFromArtifact(artifact, payload));
     } catch (err: any) {
       console.warn('[Vertex AI Draft Request Failed, falling back to simulated draft]', err);
-      setAiWarning(`Using local simulated draft (Vertex AI endpoint failed or project ID is placeholder: ${err.message || String(err)})`);
+      setAiWarning(`Using local simulated draft (Vertex AI endpoint failed, returned non-structured output, or project ID is placeholder: ${err.message || String(err)})`);
+      setAiSignals(null);
       const simulatedText = generateSimulatedAiDraft(payload);
       setAiDraft(simulatedText);
     } finally {
@@ -1392,6 +1498,19 @@ function ReportBuilderContent({ routeContext }: { routeContext: EvidenceRouteCon
                     <div className="prose prose-sm max-w-none text-slate-800 whitespace-pre-wrap leading-relaxed">
                       {aiDraft}
                     </div>
+                    {aiSignals && (
+                      <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
+                        <div className="font-bold uppercase tracking-wider text-slate-500">
+                          Structured reasoning signals (Vertex) — preserved for audit
+                        </div>
+                        <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1">
+                          <div>Evidence strength: <span className="font-semibold text-slate-800">{aiSignals.evidenceStrength}</span></div>
+                          <div>Confidence: <span className="font-semibold text-slate-800">{Math.round(aiSignals.confidence * 100)}%</span></div>
+                          <div>Contradictions: <span className="font-semibold text-slate-800">{aiSignals.contradictions.length}</span></div>
+                          <div>Missing validation: <span className="font-semibold text-slate-800">{aiSignals.missingValidation.length}</span></div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">

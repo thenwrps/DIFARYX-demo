@@ -4,6 +4,15 @@ import dotenv from "dotenv";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 
+let VertexAI = null;
+try {
+  const vertexModule = await import("@google-cloud/vertexai");
+  VertexAI = vertexModule.VertexAI;
+  console.log("Vertex AI SDK successfully imported.");
+} catch (e) {
+  console.warn("Vertex AI SDK not loaded. Vertex AI mode will not be available.");
+}
+
 dotenv.config();
 
 console.log("SERVER FILE LOADED:", import.meta.url);
@@ -91,10 +100,40 @@ Rules:
 }
 
 async function runGeminiReasoning(prompt, modelName = "gemini-1.5-flash") {
-  if (!genAI) {
-    throw new Error("GEMINI_API_KEY is missing.");
+  // If GOOGLE_CLOUD_PROJECT is configured, try using Vertex AI
+  if (process.env.GOOGLE_CLOUD_PROJECT && VertexAI) {
+    console.log("Using Vertex AI for Gemini reasoning:", modelName);
+    const vertexAI = new VertexAI({
+      project: process.env.GOOGLE_CLOUD_PROJECT,
+      location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1'
+    });
+
+    const model = vertexAI.getGenerativeModel({
+      model: modelName,
+      generationConfig: {
+        responseMimeType: 'application/json',
+        temperature: 0.1,
+      }
+    });
+
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const text = response.text();
+    const parsed = safeParseJson(text);
+
+    if (!parsed) {
+      throw new Error(`Vertex AI returned non-JSON output: ${text}`);
+    }
+
+    return parsed;
   }
 
+  // Fallback to standard Gemini API Key
+  if (!genAI) {
+    throw new Error("Vertex AI (GOOGLE_CLOUD_PROJECT) or GEMINI_API_KEY is missing.");
+  }
+
+  console.log("Using standard Gemini API for reasoning:", modelName);
   const model = genAI.getGenerativeModel({
     model: modelName
   });

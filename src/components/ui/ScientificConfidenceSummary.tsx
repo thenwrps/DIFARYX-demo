@@ -116,41 +116,55 @@ export function ScientificConfidenceSummary({
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2.5 flex flex-col justify-between">
-          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-            <Activity size={10} className="text-slate-400" /> Overall Score
-          </span>
-          <span className="mt-1.5 text-lg font-extrabold text-slate-800">{readinessPercent}%</span>
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}>
+        <div className="rounded-lg border border-violet-100 bg-violet-50/20 p-2.5 flex flex-col justify-between min-h-[82px] dark:border-violet-900/20 dark:bg-violet-950/10">
+          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 flex items-start gap-1">
+            <Activity size={11} className="text-violet-500 shrink-0 mt-0.5 dark:text-violet-400" />
+            <span className="leading-tight">Overall Score</span>
+          </div>
+          <span className="mt-1 text-lg font-extrabold text-violet-900 dark:text-violet-300">{readinessPercent}%</span>
         </div>
 
-        <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2.5 flex flex-col justify-between">
-          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-            <Layers size={10} className="text-slate-400" /> Evidence Coverage
-          </span>
-          <span className="mt-1.5 text-lg font-extrabold text-slate-800">{coverageAvailable}/{coverageTotal}</span>
+        <div className="rounded-lg border border-indigo-100 bg-indigo-50/20 p-2.5 flex flex-col justify-between min-h-[82px] dark:border-indigo-900/20 dark:bg-indigo-950/10">
+          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 flex items-start gap-1">
+            <Layers size={11} className="text-indigo-500 shrink-0 mt-0.5 dark:text-indigo-400" />
+            <span className="leading-tight">Evidence Coverage</span>
+          </div>
+          <span className="mt-1 text-lg font-extrabold text-indigo-900 dark:text-indigo-300">{coverageAvailable}/{coverageTotal}</span>
         </div>
 
-        <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2.5 flex flex-col justify-between">
-          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-            <AlertTriangle size={10} className="text-slate-400" /> Critical Contradictions
-          </span>
-          <span className="mt-1.5 text-lg font-extrabold text-slate-800">{criticalCount}</span>
+        <div className={`rounded-lg border p-2.5 flex flex-col justify-between min-h-[82px] ${
+          criticalCount > 0
+            ? 'border-red-100 bg-red-50/30 dark:border-red-900/30 dark:bg-red-950/10'
+            : 'border-slate-100 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/20'
+        }`}>
+          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 flex items-start gap-1">
+            <AlertTriangle size={11} className={`shrink-0 mt-0.5 ${criticalCount > 0 ? 'text-red-500 dark:text-red-400' : 'text-slate-400'}`} />
+            <span className="leading-tight">Critical Contradictions</span>
+          </div>
+          <span className={`mt-1 text-lg font-extrabold ${criticalCount > 0 ? 'text-red-700 dark:text-red-400' : 'text-slate-800 dark:text-slate-300'}`}>{criticalCount}</span>
         </div>
 
-        <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2.5 flex flex-col justify-between">
+        <div className={`rounded-lg border p-2.5 flex flex-col justify-between min-h-[82px] ${
+          gapCount > 0
+            ? 'border-amber-100 bg-amber-50/20 dark:border-amber-900/20 dark:bg-amber-950/10'
+            : 'border-emerald-100 bg-emerald-50/20 dark:border-emerald-900/20 dark:bg-emerald-950/10'
+        }`}>
           <div>
-            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-              <CheckCircle2 size={10} className="text-slate-400" /> Validation Gaps
-            </span>
-            <span className="mt-1.5 block text-lg font-extrabold text-slate-800">{gapCount}</span>
+            <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 flex items-start gap-1">
+              <CheckCircle2 size={11} className={`shrink-0 mt-0.5 ${gapCount > 0 ? 'text-amber-500 dark:text-amber-400' : 'text-emerald-500 dark:text-emerald-400'}`} />
+              <span className="leading-tight">Validation Gaps</span>
+            </div>
+            <span className={`mt-1 block text-lg font-extrabold ${gapCount > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-800 dark:text-emerald-300'}`}>{gapCount}</span>
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-1 text-[8px] font-bold tracking-wider">
-            <span className="rounded bg-red-50 px-1 py-0.5 text-red-600 dark:bg-red-950/20">C:{criticalCount}</span>
-            <span className="rounded bg-amber-50 px-1 py-0.5 text-amber-600 dark:bg-amber-950/20">H:{highCount}</span>
-            <span className="rounded bg-blue-50 px-1 py-0.5 text-blue-600 dark:bg-blue-950/20">M:{mediumCount}</span>
-            <span className="rounded bg-emerald-50 px-1 py-0.5 text-emerald-600 dark:bg-emerald-950/20">L:{lowCount}</span>
-          </div>
+          {gapCount > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1 text-[8px] font-bold tracking-wider">
+              <span className="rounded bg-red-50 px-1 py-0.5 text-red-600 dark:bg-red-950/20">C:{criticalCount}</span>
+              <span className="rounded bg-amber-50 px-1 py-0.5 text-amber-600 dark:bg-amber-950/20">H:{highCount}</span>
+              <span className="rounded bg-blue-50 px-1 py-0.5 text-blue-600 dark:bg-blue-950/20">M:{mediumCount}</span>
+              <span className="rounded bg-emerald-50 px-1 py-0.5 text-emerald-600 dark:bg-emerald-950/20">L:{lowCount}</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

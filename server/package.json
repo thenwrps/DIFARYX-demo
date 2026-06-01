@@ -9,6 +9,7 @@
     "dev": "node --watch index.js"
   },
   "dependencies": {
+    "@google-cloud/vertexai": "^1.1.0",
     "@google/generative-ai": "^0.2.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",

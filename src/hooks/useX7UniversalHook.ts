@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { UNIVERSAL_SPECTRAL_LIBRARY } from '../constants/spectralLibrary';
 import { UNIVERSAL_MASTER_LIBRARY } from '../constants/universalKnowledgeBase';
+import { searchLiterature } from '../services/literatureSearch';
 
 // ============================================================================
 // Core Interfaces & Types
@@ -262,56 +263,6 @@ function getMockEmails(query: string = ''): GmailEmailResult[] {
       email.body.toLowerCase().includes(lowerQuery) ||
       email.sender.toLowerCase().includes(lowerQuery)
   );
-}
-
-function getLocalScholarRefs(query: string): ScholarReference[] {
-  const mockReferences: ScholarReference[] = [
-    {
-      id: 'ref_scholar_01',
-      title: 'Crystalline phase structure and magnetic coupling in CuFe2O4 Spinel',
-      authors: ['H. Chen', 'T. Osgood'],
-      year: 2022,
-      journal: 'Physical Review Materials',
-      doi: '10.1103/PhysRevMaterials.6.024408',
-      conditions: {
-        wavelength: 1.5406, // Cu-Ka
-        material: 'CuFe2O4',
-        temperature: 298, // 25C
-      },
-    },
-    {
-      id: 'ref_scholar_02',
-      title: 'Thermal expansion and phase transformations of copper ferrite spinels',
-      authors: ['K. Lindqvist', 'S. Johansson'],
-      year: 2020,
-      journal: 'Journal of Applied Crystallography',
-      doi: '10.1107/S160076892000412X',
-      conditions: {
-        wavelength: 1.5406, // Cu-Ka
-        material: 'CuFe2O4',
-        temperature: 473, // 200C
-      },
-    },
-    {
-      id: 'ref_scholar_03',
-      title: 'Synchrotron powder diffraction of standard ferrites at room temperature',
-      authors: ['F. Rossi', 'G. Bianchi'],
-      year: 2024,
-      journal: 'Nature Materials Science',
-      doi: '10.1038/s41563-024-08819-y',
-      conditions: {
-        wavelength: 0.9754, // Synchrotron radiation
-        material: 'CuFe2O4',
-        temperature: 298,
-      },
-    },
-  ];
-
-  const keywords = query.toLowerCase().split(/\s+/);
-  return mockReferences.filter((ref) => {
-    const matchText = `${ref.title} ${ref.journal} ${ref.conditions.material}`.toLowerCase();
-    return keywords.some((kw) => matchText.includes(kw));
-  });
 }
 
 // ============================================================================
@@ -1217,78 +1168,27 @@ export function useX7UniversalHook(): UseX7UniversalHookResult {
 
   /**
    * Google Scholar search via Bright Data SERP API.
-   * Utilizes serp_api1 zone name and handles fallbacks gracefully to ensure
-   * Bragg's Law comparisons remain active in the demo.
+   *
+   * Delegates retrieval + fallback orchestration to the reusable, React-free
+   * literatureSearch service (src/services/literatureSearch.ts). The hook keeps
+   * the React-specific side-effects (Stripe quota reporting + BrightData error
+   * state) and preserves the legacy `ScholarReference[]` return contract.
    */
   const searchScholar = async (query: string): Promise<ScholarReference[]> => {
     const apiKey = import.meta.env.VITE_BRIGHTDATA_API_KEY;
-    if (!apiKey) {
-      console.warn(
-        '[Bright Data SERP] API key not configured in environment. Using local reference database.'
-      );
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      return getLocalScholarRefs(query);
+    const result = await searchLiterature(query, {
+      apiKey,
+      // Billable BrightData request: report Stripe usage. May throw on quota
+      // guardrail, in which case the service degrades to local references.
+      onBeforeBrightDataRequest: () => reportUsageToStripe('bright-data', 1),
+    });
+
+    if (result.error) {
+      console.warn('[Bright Data SERP] Falling back to local references dataset.', result.error);
+      setBrightDataError(result.error);
     }
 
-    try {
-      // Quota check & report is wrapped inside the try block to avoid uncaught SaaS crashes
-      reportUsageToStripe('bright-data', 1);
-
-      const response = await fetch('https://api.brightdata.com/serp/req', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          zone: 'serp_api1', // Correct zone name matching the user's active configuration
-          url: `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}`,
-        }),
-      });
-
-      if (!response.ok) {
-        if (response.status === 401 || response.status === 403 || response.status === 429) {
-          const errorMsg = `SaaS Hard Lock Alert: Bright Data SERP API returned HTTP ${response.status} (Quota Exceeded/Unauthorized). Scholar searches locked. Falling back to local reference database.`;
-          setBrightDataError(errorMsg);
-        }
-        handleApiResponseError(response.status, 'Bright Data SERP API');
-      }
-
-      const data = await response.json();
-      const results = data.organic_results || [];
-
-      if (results.length === 0) {
-        return getLocalScholarRefs(query);
-      }
-
-      return results.map((item: any, idx: number) => ({
-        id: `ref_brightdata_${idx}`,
-        title: item.title || 'Scholar Reference',
-        authors: item.author_info?.split(' - ') || ['Unknown Authors'],
-        year: parseInt(item.publication_info?.match(/\d{4}/)?.[0] || '2024'),
-        journal: item.publication_info || 'Google Scholar Index',
-        doi: item.resources?.[0]?.url,
-        conditions: {
-          wavelength: 1.5406, // standard lab Cu-Ka
-          material: query.toLowerCase().includes('spinel') ? 'CuFe2O4' : 'Unknown',
-          temperature: 298,
-        },
-      }));
-    } catch (err: any) {
-      console.warn(
-        '[Bright Data SERP] Failed to fetch. Falling back to local references dataset.',
-        err
-      );
-
-      // Capture quota limit error or SaaS Hard Lock error and set it for the Settings screen alert
-      if (err.message && (err.message.includes('SaaS Hard Lock') || err.message.includes('SaaS Quota') || err.message.includes('Subscription'))) {
-        setBrightDataError(err.message);
-      } else {
-        setBrightDataError(`Bright Data Connectivity Warning: ${err.message || String(err)}`);
-      }
-
-      return getLocalScholarRefs(query);
-    }
+    return result.refs;
   };
 
   /**
@@ -1413,17 +1313,38 @@ export function useX7UniversalHook(): UseX7UniversalHookResult {
           role: 'user',
           parts: [
             {
-              text: `You are DIFARYX, an autonomous scientific reasoning engine. Perform a deep structural analysis and characterize this research payload:
+              text: `You are DIFARYX, an autonomous scientific reasoning engine. Analyze the research payload below and emit ONLY structured reasoning signals.
 
-${JSON.stringify(payload, null, 2)}
+Do NOT author any final, user-facing claim, verdict, or conclusion sentence — a downstream deterministic presentation layer owns all user-facing wording. Your job is to assess the evidence and return the JSON object described by the response schema:
+- evidenceStrength: one of "strong" | "moderate" | "weak" | "inconclusive"
+- contradictions: short phrases describing conflicting/unexplained evidence (empty array if none)
+- missingValidation: short phrases describing validation still required (empty array if none)
+- confidence: a number in [0, 1]
 
-Identify any phase match candidates, XRD diffraction parameters, thermal states, and output a structured scientific assessment.`,
+Research payload:
+${JSON.stringify(payload, null, 2)}`,
             },
           ],
         },
       ],
       generationConfig: {
         responseMimeType: 'application/json',
+        // Enforce the structured reasoning-signal shape so the endpoint cannot
+        // return free-form prose. The deterministic claimBoundaryPresentation
+        // layer renders all user-facing wording from these signals.
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+            evidenceStrength: {
+              type: 'STRING',
+              enum: ['strong', 'moderate', 'weak', 'inconclusive'],
+            },
+            contradictions: { type: 'ARRAY', items: { type: 'STRING' } },
+            missingValidation: { type: 'ARRAY', items: { type: 'STRING' } },
+            confidence: { type: 'NUMBER' },
+          },
+          required: ['evidenceStrength', 'contradictions', 'missingValidation', 'confidence'],
+        },
         temperature: 0.15,
       },
     };

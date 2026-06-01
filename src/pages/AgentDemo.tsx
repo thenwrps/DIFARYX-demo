@@ -121,6 +121,16 @@ import {
   type EvidenceRouteContext,
 } from '../utils/evidenceRouteContext';
 import { runWhenIdle } from '../utils/idle';
+import { searchLiterature, buildLiteratureQuery } from '../services/literatureSearch';
+import {
+  type ResearchEvidenceItem,
+  type ReasoningProvenance,
+  type ReasoningProvider,
+  type ClaimBoundaryArtifact,
+  type LiteratureSearchTrace,
+  formatLiteratureSearchTrace,
+} from '../types/researchEvidence';
+import { buildClaimBoundaryArtifact } from '../utils/claimBoundaryArtifact';
 
 type TechniqueContext = Technique;
 type AgentMode = 'deterministic' | 'guided' | 'autonomous';
@@ -209,6 +219,14 @@ type AgentDemoState = {
     usedLlm: boolean;
     fallbackUsed: boolean;
   };
+  /** Structured literature citations rendered by the Research Evidence Card. */
+  researchEvidence: ResearchEvidenceItem[];
+  /** Centralized, typed reasoning provenance consumed by all cards. */
+  provenance: ReasoningProvenance | null;
+  /** Machine-readable literature-search trace entry. */
+  literatureTrace: LiteratureSearchTrace | null;
+  /** Structured claim-boundary signals + deterministically rendered text. */
+  claimBoundary: ClaimBoundaryArtifact | null;
 };
 
 type DatasetOption = {
@@ -819,6 +837,10 @@ function makeInitialState(
       usedLlm: false,
       fallbackUsed: false,
     },
+    researchEvidence: [],
+    provenance: null,
+    literatureTrace: null,
+    claimBoundary: null,
   };
 }
 
@@ -892,6 +914,10 @@ function resetRunState(
       usedLlm: false,
       fallbackUsed: false,
     },
+    researchEvidence: [],
+    provenance: null,
+    literatureTrace: null,
+    claimBoundary: null,
   };
 }
 
@@ -2084,12 +2110,69 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
     }
   }
 
+  // Result of the in-run literature retrieval, threaded into finalizeRun so the
+  // final state update is atomic and consistent (no stale-state races).
+  type LiteratureRunData = {
+    items: ResearchEvidenceItem[];
+    provenance: ReasoningProvenance;
+    trace: LiteratureSearchTrace;
+  };
+
+  /**
+   * Evidence-first literature retrieval step. Builds a hierarchical query
+   * (material -> technique -> objective, with optional confident-phase
+   * enrichment), calls the reusable literatureSearch service (live BrightData
+   * with graceful local fallback), and returns structured citations +
+   * provenance + a machine-readable trace entry.
+   */
+  const runLiteratureSearch = async (
+    context: TechniqueContext,
+    option: DatasetOption,
+    xrdResult: ReturnType<typeof runXrdPhaseIdentificationAgent> | null,
+  ): Promise<LiteratureRunData> => {
+    const topCandidate = xrdResult?.candidates?.[0] as any;
+    const detectedPhase =
+      topCandidate && (topCandidate.score ?? 0) >= 0.7
+        ? topCandidate.phase || topCandidate.label || topCandidate.name || undefined
+        : undefined;
+
+    const query = buildLiteratureQuery({
+      materialSystem: option.project.material,
+      technique: context,
+      researchObjective: missionText.trim() || undefined,
+      detectedPhase,
+    });
+
+    const result = await searchLiterature(query);
+
+    const provenance: ReasoningProvenance = {
+      literatureSource: result.source,
+      literatureCount: result.count,
+      // Updated to the actual reasoning provider in finalizeRun.
+      reasoningProvider: 'deterministic',
+      fallbackUsed: result.fallbackUsed,
+      generatedAt: new Date().toISOString(),
+    };
+
+    const trace: LiteratureSearchTrace = {
+      type: 'literature-search',
+      query: result.query,
+      source: result.source,
+      fallbackUsed: result.fallbackUsed,
+      resultCount: result.count,
+      topReference: result.items[0]?.title,
+    };
+
+    return { items: result.items, provenance, trace };
+  };
+
   const finalizeRun = (
     context: TechniqueContext,
     option: DatasetOption,
     xrdResult: ReturnType<typeof runXrdPhaseIdentificationAgent> | null,
     llmOutput: ReasoningOutput | null = null,
     fallbackUsed = false,
+    lit: LiteratureRunData | null = null,
   ) => {
     const decision = createDecisionResult(context, option, xrdResult, llmOutput);
 
@@ -2201,20 +2284,54 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
     };
     saveRun(agentRun);
 
-    setAgentState((current) => ({
-      ...current,
-      reasoningState: {
-        ...current.reasoningState,
-        status: 'complete',
-        currentStepIndex: CONTEXT_CONFIG[context].stages.length - 1,
-        result: decision,
-      },
-      llmState: {
-        output: llmOutput || null,
-        usedLlm: !!llmOutput,
-        fallbackUsed: fallbackUsed,
-      },
-    }));
+    // ── Claim boundary: structured reasoning signals -> deterministic renderer ──
+    // The reasoning engine (Vertex/LLM or deterministic) emits signals ONLY;
+    // claimBoundaryPresentation.ts (via buildClaimBoundaryArtifact) authors the
+    // final user-facing wording. Validation gaps = deterministic ∪ Vertex.
+    const reasoningProvider: ReasoningProvider =
+      llmOutput &&
+      (llmOutput.metadata?.provider === 'vertex-gemini' || llmOutput.metadata?.provider === 'gemma')
+        ? 'vertex'
+        : 'deterministic';
+    const missingValidation = Array.from(
+      new Set([...(decision.limitations ?? []), ...((llmOutput?.uncertainty ?? []))].filter(Boolean)),
+    );
+    const claimBoundary = buildClaimBoundaryArtifact({
+      technique: context,
+      provider: reasoningProvider,
+      confidence: llmOutput ? llmOutput.confidence : 0.6,
+      contradictions: llmOutput?.rejectedAlternatives ?? [],
+      missingValidation,
+    });
+
+    setAgentState((current) => {
+      const baseProvenance: ReasoningProvenance =
+        lit?.provenance ??
+        current.provenance ?? {
+          literatureSource: 'local',
+          literatureCount: 0,
+          reasoningProvider,
+          fallbackUsed: false,
+          generatedAt: new Date().toISOString(),
+        };
+      return {
+        ...current,
+        reasoningState: {
+          ...current.reasoningState,
+          status: 'complete',
+          currentStepIndex: CONTEXT_CONFIG[context].stages.length - 1,
+          result: decision,
+        },
+        llmState: {
+          output: llmOutput || null,
+          usedLlm: !!llmOutput,
+          fallbackUsed: fallbackUsed,
+        },
+        ...(lit ? { researchEvidence: lit.items, literatureTrace: lit.trace } : {}),
+        provenance: { ...baseProvenance, reasoningProvider },
+        claimBoundary,
+      };
+    });
     appendLog({
       stamp: '[decision]',
       message: `${CONTEXT_CONFIG[context].decisionKind} prepared: ${decision.conclusion}${llmOutput ? ` [AI-Assisted: ${llmOutput.metadata?.provider === 'vertex-gemini' ? 'Gemini' : llmOutput.metadata?.provider === 'gemma' ? 'Gemma' : 'Deterministic'}]` : ''}`,
@@ -2306,9 +2423,32 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
     }));
 
     try {
+      // Evidence-first literature retrieval is woven INTO the stepper: it runs
+      // as the workflow reaches the Evidence Fusion stage, so the Research
+      // Evidence Card populates as part of progression (Literature Search ->
+      // Research Evidence Card -> Evidence Fusion), not after the run completes.
+      let lit: LiteratureRunData | null = null;
+
       for (let index = 0; index < config.stages.length; index += 1) {
         if (runTokenRef.current !== token) return;
         const stage = config.stages[index];
+
+        if (stage.id === 'fusion' && !lit) {
+          lit = await runLiteratureSearch(context, option, xrdResult);
+          if (runTokenRef.current !== token) return;
+          setAgentState((current) => ({
+            ...current,
+            researchEvidence: lit!.items,
+            provenance: lit!.provenance,
+            literatureTrace: lit!.trace,
+          }));
+          appendLog({
+            stamp: `[${formatStamp(index)}]`,
+            message: formatLiteratureSearchTrace(lit.trace).replace(/\n/g, ' · '),
+            type: 'tool',
+          });
+        }
+
         setAgentState((current) => ({
           ...current,
           graphState: {
@@ -2338,6 +2478,18 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
 
       await wait(300);
       if (runTokenRef.current !== token) return;
+
+      // Defensive: ensure literature retrieval ran even if no 'fusion' stage.
+      if (!lit) {
+        lit = await runLiteratureSearch(context, option, xrdResult);
+        if (runTokenRef.current !== token) return;
+        setAgentState((current) => ({
+          ...current,
+          researchEvidence: lit!.items,
+          provenance: lit!.provenance,
+          literatureTrace: lit!.trace,
+        }));
+      }
 
       let llmOutput: ReasoningOutput | null = null;
       let fallbackUsed = false;
@@ -2376,7 +2528,7 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
         }
       }
 
-      finalizeRun(context, option, xrdResult, llmOutput, fallbackUsed);
+      finalizeRun(context, option, xrdResult, llmOutput, fallbackUsed, lit);
     } finally {
       if (runTokenRef.current === token) {
         runningGuardRef.current = false;
@@ -2458,9 +2610,49 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
         type: nextIndex === stages.length - 1 ? 'success' : 'info',
       });
 
+      // Evidence-first literature retrieval is tied to the Evidence Fusion step
+      // so the Research Evidence Card populates as part of step-by-step
+      // progression (persisted in state for the final claim-boundary build).
+      if (stage.id === 'fusion') {
+        const litStep = await runLiteratureSearch(agentState.context, option, xrdResult);
+        if (runTokenRef.current !== token) return;
+        setAgentState((current) => ({
+          ...current,
+          researchEvidence: litStep.items,
+          provenance: litStep.provenance,
+          literatureTrace: litStep.trace,
+        }));
+        appendLog({
+          stamp: `[${formatStamp(nextIndex)}]`,
+          message: formatLiteratureSearchTrace(litStep.trace).replace(/\n/g, ' · '),
+          type: 'tool',
+        });
+      }
+
       if (nextIndex === stages.length - 1) {
         await wait(300);
         if (runTokenRef.current !== token) return;
+
+        // Reuse literature retrieved at the fusion step; fall back to a fresh
+        // retrieval only if the fusion step did not run it.
+        let lit: LiteratureRunData | null =
+          agentState.provenance && agentState.literatureTrace
+            ? {
+                items: agentState.researchEvidence,
+                provenance: agentState.provenance,
+                trace: agentState.literatureTrace,
+              }
+            : null;
+        if (!lit) {
+          lit = await runLiteratureSearch(agentState.context, option, xrdResult);
+          if (runTokenRef.current !== token) return;
+          setAgentState((current) => ({
+            ...current,
+            researchEvidence: lit!.items,
+            provenance: lit!.provenance,
+            literatureTrace: lit!.trace,
+          }));
+        }
 
         let llmOutput: ReasoningOutput | null = null;
         let fallbackUsed = false;
@@ -2499,7 +2691,7 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
           }
         }
 
-        finalizeRun(agentState.context, option, xrdResult, llmOutput, fallbackUsed);
+        finalizeRun(agentState.context, option, xrdResult, llmOutput, fallbackUsed, lit);
       }
     } finally {
       if (runTokenRef.current === token) {
@@ -3396,6 +3588,9 @@ function AgentDemoContent({ routeContext }: { routeContext: EvidenceRouteContext
           approvalLedgerBundleId={evidenceBundle?.bundleId ?? `single-${selectedProject.id}`}
           modelMode={agentState.modelMode}
           llmState={agentState.llmState}
+          researchEvidence={agentState.researchEvidence}
+          reasoningProvenance={agentState.provenance}
+          claimBoundary={agentState.claimBoundary}
         />
       </div>
       <ApprovalActionDialog

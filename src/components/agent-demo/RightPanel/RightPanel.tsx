@@ -9,6 +9,15 @@ import type { RegistryProject } from '../../../data/demoProjectRegistry';
 import type { RuntimeMode } from '../../../runtime/difaryxRuntimeMode';
 import { ApprovalLedgerPanel } from '../../runtime/ApprovalLedgerPanel';
 import { ScientificConfidenceSummary } from '../../ui/ScientificConfidenceSummary';
+import type {
+  ResearchEvidenceItem,
+  ReasoningProvenance,
+  ClaimBoundaryArtifact,
+} from '../../../types/researchEvidence';
+import {
+  literatureSourceLabel,
+  reasoningProviderLabel,
+} from '../../../types/researchEvidence';
 import { getTechniqueWorkspaceConfig, type TechniqueWorkspaceId, type TechniqueParameterControl, type TechniqueParameterValue } from '../../../data/techniqueWorkspaceContent';
 import { ParameterControlField } from '../../workspace/ParameterControlField';
 import {
@@ -99,6 +108,9 @@ interface RightPanelProps {
     usedLlm: boolean;
     fallbackUsed: boolean;
   };
+  researchEvidence?: ResearchEvidenceItem[];
+  reasoningProvenance?: ReasoningProvenance | null;
+  claimBoundary?: ClaimBoundaryArtifact | null;
 }
 
 export function RightPanel({
@@ -121,6 +133,9 @@ export function RightPanel({
   approvalLedgerBundleId,
   modelMode = 'deterministic',
   llmState,
+  researchEvidence = [],
+  reasoningProvenance = null,
+  claimBoundary = null,
 }: RightPanelProps) {
   const modeConfig = AGENT_MODES[mode];
   const [activeTab, setActiveTab] = useState<string>(modeConfig.tabs[0].id);
@@ -207,7 +222,9 @@ export function RightPanel({
           />
         )}
         {mode === 'deterministic' && activeTab === 'evidence' && (
-          evidenceWorkspace ? <EvidenceWorkspaceTabContent workspace={evidenceWorkspace} /> : <EvidenceByTechniqueCard context={agentContext} />
+          evidenceWorkspace
+            ? <EvidenceWorkspaceTabContent workspace={evidenceWorkspace} researchEvidence={researchEvidence} reasoningProvenance={reasoningProvenance} claimBoundary={claimBoundary} />
+            : <EvidenceByTechniqueCard context={agentContext} researchEvidence={researchEvidence} reasoningProvenance={reasoningProvenance} claimBoundary={claimBoundary} />
         )}
         {mode === 'deterministic' && activeTab === 'trace' && (
           <>
@@ -216,7 +233,9 @@ export function RightPanel({
           </>
         )}
         {mode === 'deterministic' && activeTab === 'boundary' && (
-          evidenceWorkspace ? <BoundaryWorkspaceTabContent workspace={evidenceWorkspace} /> : <BoundaryTabContent boundary={agentContext.boundaryContext} />
+          evidenceWorkspace
+            ? <BoundaryWorkspaceTabContent workspace={evidenceWorkspace} claimBoundary={claimBoundary} />
+            : <BoundaryTabContent boundary={agentContext.boundaryContext} claimBoundary={claimBoundary} />
         )}
 
         {mode === 'guided' && activeTab === 'question' && (
@@ -225,7 +244,9 @@ export function RightPanel({
             <ProjectContextCard context={agentContext} registryProject={registryProject} />
           </>
         )}
-        {mode === 'guided' && activeTab === 'evidence' && <EvidenceByTechniqueCard context={agentContext} />}
+        {mode === 'guided' && activeTab === 'evidence' && (
+          <EvidenceByTechniqueCard context={agentContext} researchEvidence={researchEvidence} reasoningProvenance={reasoningProvenance} claimBoundary={claimBoundary} />
+        )}
         {mode === 'guided' && activeTab === 'discussion' && <DiscussionCard context={agentContext} />}
         {mode === 'guided' && activeTab === 'compare' && <AgentComparePlaceholder />}
         {mode === 'guided' && activeTab === 'notebook' && <NotebookPreviewCard context={agentContext} onSave={onSaveToNotebook} onExport={onExportReport} />}
@@ -239,7 +260,7 @@ export function RightPanel({
         {mode === 'autonomous' && activeTab === 'plan' && <PlanCard steps={agentContext.workflowSteps} />}
         {mode === 'autonomous' && activeTab === 'findings' && (
           <>
-            <EvidenceByTechniqueCard context={agentContext} />
+            <EvidenceByTechniqueCard context={agentContext} researchEvidence={researchEvidence} reasoningProvenance={reasoningProvenance} claimBoundary={claimBoundary} />
             <ClaimBoundaryCard context={agentContext} />
           </>
         )}
@@ -252,7 +273,7 @@ export function RightPanel({
         {mode === 'autonomous' && activeTab === 'decision' && (
           <>
             <RecommendedActionsCard context={agentContext} />
-            <BoundaryTabContent boundary={agentContext.boundaryContext} />
+            <BoundaryTabContent boundary={agentContext.boundaryContext} claimBoundary={claimBoundary} />
           </>
         )}
         <ApprovalLedgerPanel
@@ -567,7 +588,110 @@ function ParametersTabContent({
   );
 }
 
-function EvidenceWorkspaceTabContent({ workspace }: { workspace: AgentEvidenceWorkspace }) {
+// ── Inner render helpers for structured research data ──
+// Borderless fragments so they can be merged INTO the existing Research
+// References / Validation Gap / Claim Boundary boxes (no duplicate boxes).
+
+function RetrievedReferencesList({
+  items,
+  provenance,
+}: {
+  items: ResearchEvidenceItem[];
+  provenance: ReasoningProvenance | null;
+}) {
+  if (items.length === 0 && !provenance) return null;
+  return (
+    <div className="mt-2 pt-2 border-t border-slate-100">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+          Retrieved literature
+        </span>
+        {provenance && (
+          <span className="rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-blue-700">
+            {literatureSourceLabel(provenance.literatureSource)}
+            {provenance.fallbackUsed ? ' · fallback' : ''} · {provenance.literatureCount}
+          </span>
+        )}
+      </div>
+      {items.length > 0 ? (
+        <ul className="mt-1 space-y-1.5">
+          {items.slice(0, 6).map((item, i) => (
+            <li key={`${item.doi || item.title}-${i}`} className="text-xs border-l-2 border-blue-100 pl-2">
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-semibold text-slate-800">{item.title}</span>
+                <span className="shrink-0 text-[9px] px-1 py-0.5 rounded border border-slate-200 bg-slate-50 text-slate-600 font-semibold">
+                  {item.source === 'brightdata' ? 'Scholar' : 'Local'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {item.authors.join(', ')}
+                {item.year ? ` · ${item.year}` : ''}
+                {item.journal ? ` · ${item.journal}` : ''}
+              </p>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-[11px] text-slate-500">No literature references retrieved yet.</p>
+      )}
+    </div>
+  );
+}
+
+function ResearchGapsList({ claimBoundary }: { claimBoundary: ClaimBoundaryArtifact | null }) {
+  if (!claimBoundary) return null;
+  const { missingValidation, contradictions } = claimBoundary.signals;
+  if (missingValidation.length === 0 && contradictions.length === 0) return null;
+  return (
+    <div className="pt-2 border-t border-amber-200">
+      <span className="font-semibold text-amber-900">
+        Research validation gaps (deterministic ∪ {reasoningProviderLabel(claimBoundary.provider)}):
+      </span>
+      {missingValidation.length > 0 && (
+        <ul className="mt-1 space-y-0.5 text-amber-700">
+          {missingValidation.map((gap, i) => (
+            <li key={`mv-${i}`}>- {gap}</li>
+          ))}
+        </ul>
+      )}
+      {contradictions.length > 0 && (
+        <ul className="mt-1 space-y-0.5 text-amber-700">
+          {contradictions.map((c, i) => (
+            <li key={`ct-${i}`}>! {c}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function RenderedClaimBoundaryList({ claimBoundary }: { claimBoundary: ClaimBoundaryArtifact | null }) {
+  if (!claimBoundary || claimBoundary.renderedClaimBoundary.length === 0) return null;
+  return (
+    <div className="pt-2 border-t border-blue-200">
+      <span className="font-semibold text-blue-900">
+        Research claim boundary (via {reasoningProviderLabel(claimBoundary.provider)} signals · deterministic):
+      </span>
+      <ul className="mt-1 space-y-0.5 text-blue-700">
+        {claimBoundary.renderedClaimBoundary.map((line, i) => (
+          <li key={i}>- {line}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function EvidenceWorkspaceTabContent({
+  workspace,
+  researchEvidence = [],
+  reasoningProvenance = null,
+  claimBoundary = null,
+}: {
+  workspace: AgentEvidenceWorkspace;
+  researchEvidence?: ResearchEvidenceItem[];
+  reasoningProvenance?: ReasoningProvenance | null;
+  claimBoundary?: ClaimBoundaryArtifact | null;
+}) {
   const selectedTechniques = workspace.techniques.filter((t) => t.selected);
   const allReferences = workspace.techniques.flatMap((t) => t.requiredReferences);
   const uniqueReferences = allReferences.filter(
@@ -610,7 +734,7 @@ function EvidenceWorkspaceTabContent({ workspace }: { workspace: AgentEvidenceWo
       </div>
 
       {/* Research References */}
-      {workspace.jobType === 'research' && (
+      {(workspace.jobType === 'research' || researchEvidence.length > 0) && (
         <div className="rounded-lg border border-slate-200 bg-white p-3">
           <h3 className="flex items-center gap-2 text-xs font-bold text-slate-900 mb-2">
             <BookOpen size={14} className="text-blue-600" />
@@ -638,6 +762,7 @@ function EvidenceWorkspaceTabContent({ workspace }: { workspace: AgentEvidenceWo
               </div>
             ))}
           </div>
+          <RetrievedReferencesList items={researchEvidence} provenance={reasoningProvenance} />
         </div>
       )}
 
@@ -660,6 +785,7 @@ function EvidenceWorkspaceTabContent({ workspace }: { workspace: AgentEvidenceWo
             <span className="font-semibold text-amber-900">Next action:</span>
             <p className="mt-1 text-amber-700">{workspace.claimBoundary.requiredNext[0]}</p>
           </div>
+          <ResearchGapsList claimBoundary={claimBoundary} />
         </div>
       </div>
     </>
@@ -765,7 +891,13 @@ function TraceWorkspaceTabContent({ workspace }: { workspace: AgentEvidenceWorks
   );
 }
 
-function BoundaryWorkspaceTabContent({ workspace }: { workspace: AgentEvidenceWorkspace }) {
+function BoundaryWorkspaceTabContent({
+  workspace,
+  claimBoundary = null,
+}: {
+  workspace: AgentEvidenceWorkspace;
+  claimBoundary?: ClaimBoundaryArtifact | null;
+}) {
   const jobLabel = workspace.jobType === 'rnd' ? 'R&D' : workspace.jobType === 'analytical' ? 'Analytical' : 'Research';
   return (
     <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-3">
@@ -810,35 +942,77 @@ function BoundaryWorkspaceTabContent({ workspace }: { workspace: AgentEvidenceWo
             ))}
           </ul>
         </div>
+
+        <RenderedClaimBoundaryList claimBoundary={claimBoundary} />
       </div>
     </div>
   );
 }
 
-function EvidenceByTechniqueCard({ context }: { context: AgentContext }) {
+function EvidenceByTechniqueCard({
+  context,
+  researchEvidence = [],
+  reasoningProvenance = null,
+  claimBoundary = null,
+}: {
+  context: AgentContext;
+  researchEvidence?: ResearchEvidenceItem[];
+  reasoningProvenance?: ReasoningProvenance | null;
+  claimBoundary?: ClaimBoundaryArtifact | null;
+}) {
+  const hasResearchRefs = researchEvidence.length > 0 || !!reasoningProvenance;
+  const hasResearchGaps =
+    !!claimBoundary &&
+    (claimBoundary.signals.missingValidation.length > 0 || claimBoundary.signals.contradictions.length > 0);
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <h3 className="flex items-center gap-2 text-xs font-bold text-slate-900 mb-2">
-        <Database size={14} className="text-blue-600" />
-        Evidence Results
-      </h3>
-      <div className="space-y-2">
-        {context.evidenceLayers.map((layer: EvidenceLayer) => (
-          <div key={layer.technique} className="text-xs border-l-2 border-slate-200 pl-2">
-            <div className="flex items-center gap-1.5">
-              <span className="font-semibold text-slate-900">{layer.technique}</span>
-              <StatusBadge status={layer.status} />
+    <>
+      <div className="rounded-lg border border-slate-200 bg-white p-3">
+        <h3 className="flex items-center gap-2 text-xs font-bold text-slate-900 mb-2">
+          <Database size={14} className="text-blue-600" />
+          Evidence Results
+        </h3>
+        <div className="space-y-2">
+          {context.evidenceLayers.map((layer: EvidenceLayer) => (
+            <div key={layer.technique} className="text-xs border-l-2 border-slate-200 pl-2">
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-slate-900">{layer.technique}</span>
+                <StatusBadge status={layer.status} />
+              </div>
+              <p className="text-slate-600 mt-0.5 leading-relaxed">{layer.summary}</p>
             </div>
-            <p className="text-slate-600 mt-0.5 leading-relaxed">{layer.summary}</p>
+          ))}
+        </div>
+        {context.evidenceMode === 'multi-tech' && (
+          <div className="mt-3 pt-2 border-t border-slate-100 text-xs text-slate-600">
+            <span className="font-semibold">Cross-tech:</span> {context.discussionContext.agreement}
           </div>
-        ))}
+        )}
       </div>
-      {context.evidenceMode === 'multi-tech' && (
-        <div className="mt-3 pt-2 border-t border-slate-100 text-xs text-slate-600">
-          <span className="font-semibold">Cross-tech:</span> {context.discussionContext.agreement}
+
+      {/* Research References (structured) — only when no workspace box exists */}
+      {hasResearchRefs && (
+        <div className="rounded-lg border border-slate-200 bg-white p-3">
+          <h3 className="flex items-center gap-2 text-xs font-bold text-slate-900 mb-1">
+            <BookOpen size={14} className="text-blue-600" />
+            Research References
+          </h3>
+          <RetrievedReferencesList items={researchEvidence} provenance={reasoningProvenance} />
         </div>
       )}
-    </div>
+
+      {/* Validation Gap (structured) */}
+      {hasResearchGaps && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <h3 className="flex items-center gap-2 text-xs font-bold text-amber-900 mb-1">
+            <AlertTriangle size={14} className="text-amber-600" />
+            Validation Gap
+          </h3>
+          <div className="text-xs">
+            <ResearchGapsList claimBoundary={claimBoundary} />
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -883,7 +1057,13 @@ function TraceTabContent({ trace }: { trace: TraceContext }) {
   );
 }
 
-function BoundaryTabContent({ boundary }: { boundary: BoundaryContext }) {
+function BoundaryTabContent({
+  boundary,
+  claimBoundary = null,
+}: {
+  boundary: BoundaryContext;
+  claimBoundary?: ClaimBoundaryArtifact | null;
+}) {
   const jobLabel = boundary.jobType === 'rnd' ? 'R&D' : boundary.jobType === 'analytical' ? 'Analytical' : 'Research';
   return (
     <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-3">
@@ -903,6 +1083,7 @@ function BoundaryTabContent({ boundary }: { boundary: BoundaryContext }) {
       {boundary.requiredNext.length > 0 && (
         <Section title="Required next" items={boundary.requiredNext} color="blue" />
       )}
+      <RenderedClaimBoundaryList claimBoundary={claimBoundary} />
     </div>
   );
 }
