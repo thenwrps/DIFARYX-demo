@@ -103,3 +103,10 @@ DIFARYX_completed_work_summary.xlsx
 temp_notes/
 task.md
 walkthrough.md
+
+.agents/
+.claude/
+.impeccable/
+
+scripts/bin/unzip.cmd
+scripts/bin/unzip.py
