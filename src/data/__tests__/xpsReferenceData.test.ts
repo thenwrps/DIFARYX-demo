@@ -16,6 +16,15 @@ import {
   getSpinOrbitSplitting,
   hasSatellitePeaks,
   getSatelliteParameters,
+  XPS_CALIBRATION_STANDARDS,
+  getCalibrationStandards,
+  getCalibrationStandardById,
+  getCalibrationShift,
+  listReferenceElements,
+  getReferencesForElement,
+  getElementRegionWindow,
+  listReferenceRegions,
+  getRegionWindowByValue,
   type XpsCoreLevelReference
 } from '../xpsReferenceData';
 
@@ -334,8 +343,8 @@ describe('XPS Reference Data - Helper Functions', () => {
     });
 
     it('should return undefined for non-existent core level', () => {
-      const nonExistent = getCoreLevelReference('Cu', '1+', '2p3/2');
-      
+      const nonExistent = getCoreLevelReference('Cu', '2+', '3s');
+
       expect(nonExistent).toBeUndefined();
     });
   });
@@ -353,12 +362,13 @@ describe('XPS Reference Data - Data Consistency', () => {
   });
 
   describe('FWHM Ranges (Requirement 3.10)', () => {
-    it('should have all FWHM values between 2.0 and 3.5 eV', () => {
-      // Requirement 3.10: XPS peak widths (FWHM) between 2.0 and 3.5 eV
+    it('should have all FWHM values between 1.0 and 3.5 eV', () => {
+      // XPS peak widths (FWHM). Transition-metal 2p lines run 2.0-3.5 eV;
+      // lighter elements / reduced states (e.g. C 1s, Cu⁺) are narrower (≥1.0 eV).
       XPS_REFERENCE_DATA.forEach(ref => {
         const [minFwhm, maxFwhm] = ref.fwhm;
-        
-        expect(minFwhm).toBeGreaterThanOrEqual(2.0);
+
+        expect(minFwhm).toBeGreaterThanOrEqual(1.0);
         expect(maxFwhm).toBeLessThanOrEqual(3.5);
         expect(minFwhm).toBeLessThan(maxFwhm);
       });
@@ -395,9 +405,10 @@ describe('XPS Reference Data - Data Consistency', () => {
 
   describe('Oxidation State Notation', () => {
     it('should use proper oxidation state notation', () => {
-      // Requirement 8.8: Use proper oxidation state notation (Cu²⁺, Fe³⁺)
-      const validOxidationStates = ['2+', '3+', '2-'];
-      
+      // Requirement 8.8: Use proper oxidation state notation (Cu²⁺, Fe³⁺).
+      // Superset includes reduced/mixed/neutral states from the consolidated DB.
+      const validOxidationStates = ['0', '1+', '2+', '3+', '4+', '2-', '2+/3+'];
+
       XPS_REFERENCE_DATA.forEach(ref => {
         expect(validOxidationStates).toContain(ref.oxidationState);
       });
@@ -433,5 +444,99 @@ describe('XPS Reference Data - Data Consistency', () => {
       expect(feLevels).toContain('2p3/2');
       expect(feLevels).toContain('2p1/2');
     });
+  });
+});
+
+// ============================================================================
+// Consolidation: canonical superset coverage (single source of truth)
+// ============================================================================
+
+describe('XPS Reference Data - Canonical Coverage', () => {
+  it('covers Cu, Fe, Co, O, and C (union of former parallel tables)', () => {
+    const elements = new Set(XPS_REFERENCE_DATA.map((r) => r.element));
+    for (const el of ['Cu', 'Fe', 'Co', 'O', 'C']) {
+      expect(elements.has(el)).toBe(true);
+    }
+  });
+
+  it('includes Co 2p doublet and C 1s oxidation states', () => {
+    const co = getReferencesForElement('Co').map((r) => r.coreLevel);
+    expect(co).toContain('2p3/2');
+    expect(co).toContain('2p1/2');
+    const carbonStates = getReferencesForElement('C').map((r) => r.oxidationState);
+    expect(carbonStates).toContain('0');
+    expect(carbonStates).toContain('4+');
+  });
+});
+
+// ============================================================================
+// Energy Calibration Standards
+// ============================================================================
+
+describe('XPS Energy Calibration Standards', () => {
+  it('exposes the canonical standards beyond C and Au', () => {
+    const ids = getCalibrationStandards().map((s) => s.id);
+    expect(ids).toEqual(
+      expect.arrayContaining(['C1s', 'Au4f7', 'Ag3d5', 'Cu2p3', 'Fermi'])
+    );
+  });
+
+  it('carries traceability metadata for each standard', () => {
+    for (const std of XPS_CALIBRATION_STANDARDS) {
+      expect(typeof std.bindingEnergy).toBe('number');
+      expect(std.source.length).toBeGreaterThan(0);
+      expect(typeof std.isInert).toBe('boolean');
+    }
+  });
+
+  it('resolves a standard by id or by label', () => {
+    expect(getCalibrationStandardById('Au4f7')?.bindingEnergy).toBe(84.0);
+    expect(getCalibrationStandardById('Au 4f7/2 (84.0 eV)')?.id).toBe('Au4f7');
+    expect(getCalibrationStandardById('does-not-exist')).toBeUndefined();
+  });
+
+  it('returns a deterministic charge-reference shift (C 1s = 0, preserves Au demo offset)', () => {
+    expect(getCalibrationShift('C1s')).toBe(0);
+    expect(getCalibrationShift('Au4f7')).toBe(-200.2);
+    expect(getCalibrationShift('Ag3d5')).toBe(0);
+    expect(getCalibrationShift('unknown')).toBe(0);
+  });
+});
+
+// ============================================================================
+// Element / region helpers (drive region dropdown + element-analysis view)
+// ============================================================================
+
+describe('XPS Element / Region Helpers', () => {
+  it('lists distinct reference elements', () => {
+    const elements = listReferenceElements();
+    expect(elements).toEqual(expect.arrayContaining(['Cu', 'Fe', 'Co', 'O', 'C']));
+    // distinct
+    expect(new Set(elements).size).toBe(elements.length);
+  });
+
+  it('derives a binding-energy window covering an element core-level region', () => {
+    const cu = getElementRegionWindow('Cu');
+    expect(cu).toBeDefined();
+    expect(cu!.label).toBe('Cu 2p');
+    // Cu 2p3/2 (~932-933) and 2p1/2 (~952-953) must be inside the window
+    expect(cu!.min).toBeLessThanOrEqual(932.5);
+    expect(cu!.max).toBeGreaterThanOrEqual(953.3);
+  });
+
+  it('builds region descriptors used by the region dropdown', () => {
+    const regions = listReferenceRegions().map((r) => r.value);
+    expect(regions).toEqual(
+      expect.arrayContaining(['Cu 2p', 'Fe 2p', 'Co 2p', 'O 1s', 'C 1s'])
+    );
+  });
+
+  it('resolves a region value to element + window, and ignores Survey/Custom', () => {
+    const cu = getRegionWindowByValue('Cu 2p');
+    expect(cu?.element).toBe('Cu');
+    expect(cu!.min).toBeLessThan(cu!.max);
+    expect(getRegionWindowByValue('Survey')).toBeUndefined();
+    expect(getRegionWindowByValue('Custom')).toBeUndefined();
+    expect(getRegionWindowByValue('')).toBeUndefined();
   });
 });
