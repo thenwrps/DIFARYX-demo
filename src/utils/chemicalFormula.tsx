@@ -5,7 +5,9 @@ import { formatChemicalFormula as formatUnicode, formatChemicalFormulasInText as
  * using Unicode characters. Returns a string.
  */
 export function formatChemicalFormula(input: string): string {
-  return formatUnicode(input);
+  // Use text-based formatting by default to prevent formatting numbers 
+  // in non-formula strings (like filenames, e.g., '5-80_22min.txt')
+  return formatTextUnicode(input);
 }
 
 /**

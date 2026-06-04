@@ -14,7 +14,6 @@ interface XRDReferenceMatchPanelProps {
   enabled: boolean;
   matchMode: string;
   referenceSource: string;
-  referenceSetId?: string;
   candidatePhaseIds: string[];
   toleranceTwoTheta: number;
   minMatchedPeaks: number;
@@ -29,12 +28,14 @@ interface XRDReferenceMatchPanelProps {
   // Options
   matchModeOptions: Array<{ value: string; label: string }>;
   referenceSourceOptions: Array<{ value: string; label: string }>;
+  analysisMode: string;
+  analysisModeOptions: Array<{ value: string; label: string }>;
   
   // Callbacks
   onEnabledChange: (enabled: boolean) => void;
   onMatchModeChange: (matchMode: string) => void;
   onReferenceSourceChange: (referenceSource: string) => void;
-  onReferenceSetIdChange: (referenceSetId: string) => void;
+  onAnalysisModeChange: (analysisMode: string) => void;
   onCandidatePhaseIdsChange: (candidatePhaseIds: string) => void;
   onToleranceTwoThetaChange: (toleranceTwoTheta: number) => void;
   onMinMatchedPeaksChange: (minMatchedPeaks: number) => void;
@@ -188,7 +189,6 @@ export function XRDReferenceMatchPanel({
   enabled,
   matchMode,
   referenceSource,
-  referenceSetId,
   candidatePhaseIds,
   toleranceTwoTheta,
   minMatchedPeaks,
@@ -201,10 +201,12 @@ export function XRDReferenceMatchPanel({
   allowPhasePurityClaim,
   matchModeOptions,
   referenceSourceOptions,
+  analysisMode,
+  analysisModeOptions,
   onEnabledChange,
   onMatchModeChange,
   onReferenceSourceChange,
-  onReferenceSetIdChange,
+  onAnalysisModeChange,
   onCandidatePhaseIdsChange,
   onToleranceTwoThetaChange,
   onMinMatchedPeaksChange,
@@ -217,9 +219,6 @@ export function XRDReferenceMatchPanel({
   return (
     <Panel title="Reference Candidate Match" icon={<FileText size={13} />}>
       <div className="space-y-1.5">
-        <XRDStatusText tone={referenceSetId ? 'neutral' : 'warning'}>
-          Reference matching requires a selected reference set.
-        </XRDStatusText>
         <XRDStatusText tone="info">XRD reference matching is candidate evidence only.</XRDStatusText>
       </div>
       <div className="mt-2 grid grid-cols-2 gap-2">
@@ -238,78 +237,44 @@ export function XRDReferenceMatchPanel({
             onChange={onMatchModeChange}
           />
         </div>
-        <XRDSelectField
-          label="Reference source"
-          value={referenceSource}
-          options={referenceSourceOptions}
-          onChange={onReferenceSourceChange}
-        />
-        <XRDTextField
-          label="Reference set id"
-          value={referenceSetId ?? ''}
-          onChange={onReferenceSetIdChange}
-          placeholder="Reference set id"
-        />
+        <div className="col-span-2 grid grid-cols-2 gap-2">
+          <XRDSelectField
+            label="Reference source"
+            value={referenceSource}
+            options={referenceSourceOptions}
+            onChange={onReferenceSourceChange}
+          />
+          <XRDSelectField
+            label="Analysis mode"
+            value={analysisMode}
+            options={analysisModeOptions}
+            onChange={onAnalysisModeChange}
+          />
+        </div>
         <div className="col-span-2">
           <XRDTextField
             label="Candidate phase ids"
-            value={candidatePhaseIds.join(', ')}
+            value={(candidatePhaseIds || []).join(', ')}
             onChange={onCandidatePhaseIdsChange}
             placeholder="e.g. cofe2o4_icsd_15342, sba15_amorphous_reference"
           />
         </div>
-        <XRDNumberField
-          label="2theta tolerance"
-          value={toleranceTwoTheta}
-          min={0}
-          step={0.1}
-          unit="deg"
-          onChange={onToleranceTwoThetaChange}
-        />
-        <XRDNumberField
-          label="Min matched peaks"
-          value={minMatchedPeaks}
-          min={0}
-          step={1}
-          onChange={onMinMatchedPeaksChange}
-        />
-        <XRDNumberField
-          label="Min coverage ratio"
-          value={minCoverageRatio}
-          min={0}
-          max={1}
-          step={0.01}
-          onChange={onMinCoverageRatioChange}
-        />
-        <XRDNumberField
-          label="Min score"
-          value={minScore}
-          min={0}
-          max={1}
-          step={0.01}
-          onChange={onMinScoreChange}
-        />
-        <div className="col-span-2">
-          <XRDToggleField
-            label="Use relative intensity"
-            checked={useRelativeIntensity}
-            onChange={onUseRelativeIntensityChange}
-          />
-        </div>
-        <XRDNumberField
-          label="Intensity tolerance"
-          value={intensityToleranceRatio}
-          min={0}
-          max={1}
-          step={0.01}
-          onChange={onIntensityToleranceRatioChange}
-        />
-        <XRDToggleField
-          label="Allow unknown search"
-          checked={allowUnknownSearch}
-          onChange={onAllowUnknownSearchChange}
-        />
       </div>
+      
+      {/* Overview Metrics for Advanced Matching Parameters */}
+      <div className="mt-3 rounded border border-border bg-slate-50/50 p-2">
+        <h4 className="mb-2 text-[10px] font-semibold text-text-muted">Advanced parameters</h4>
+        <div className="space-y-1">
+          <Metric label="2theta tolerance" value={`${toleranceTwoTheta} deg`} />
+          <Metric label="Min matched peaks" value={minMatchedPeaks} />
+          <Metric label="Min coverage ratio" value={minCoverageRatio} />
+          <Metric label="Min score" value={minScore} />
+          <Metric label="Relative intensity" value={useRelativeIntensity ? 'Enabled' : 'Disabled'} />
+          {useRelativeIntensity && <Metric label="Intensity tolerance" value={intensityToleranceRatio} />}
+          <Metric label="Unknown search" value={allowUnknownSearch ? 'Enabled' : 'Disabled'} />
+        </div>
+      </div>
+
       <div className="mt-2 space-y-1">
         <Metric label="Identity claim" value={allowIdentityClaim ? 'Enabled' : 'Blocked'} />
         <Metric label="Phase purity claim" value={allowPhasePurityClaim ? 'Enabled' : 'Blocked'} />
