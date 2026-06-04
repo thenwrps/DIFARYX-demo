@@ -10,8 +10,8 @@ export const DEFAULT_XRD_PARAMETERS: XRDParameters = {
     wavelengthAngstrom: 1.5406,
   },
   baseline: {
-    method: 'asymmetric_ls',
-    lambda: 100000,
+    method: 'rolling_ball',
+    asymmetry: 0.001,
     p: 0.01,
   },
   smoothing: {
@@ -29,7 +29,12 @@ export const DEFAULT_XRD_PARAMETERS: XRDParameters = {
     model: 'pseudo_voigt',
     fitWindowDeg: 0.8,
     maxIterations: 500,
+    refineFWHM: true,
+    refineShape: true,
     calculateCrystalliteSize: true,
+    scherrerConstant: 0.89,
+    instrumentalBroadening: 0.05,
+    calculateMicrostrain: false,
   },
   referenceMatch: {
     enabled: true,

@@ -38,7 +38,12 @@ export interface XRDPeakFittingParameters {
   model: XRDPeakFitModel;
   fitWindowDeg: number;
   maxIterations: number;
+  refineFWHM: boolean;
+  refineShape: boolean;
   calculateCrystalliteSize: boolean;
+  scherrerConstant: number;
+  instrumentalBroadening: number;
+  calculateMicrostrain: boolean;
 }
 
 export interface XRDReferenceMatchParameters {

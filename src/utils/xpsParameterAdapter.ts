@@ -8,6 +8,7 @@
 import type { XpsProcessingParams } from '../agents/xpsAgent/runner';
 import type { TechniqueParameterValue } from '../data/techniqueWorkspaceContent';
 import { readParameterState } from './parameterStateManager';
+import { getCalibrationShift, getCalibrationStandardById } from '../data/xpsReferenceData';
 
 /**
  * Convert parameter state effective values to XpsProcessingParams
@@ -18,13 +19,19 @@ export function convertToXpsProcessingParams(
   const params: XpsProcessingParams = {};
   let hasAnyParams = false;
 
-  // Energy calibration
+  // Energy calibration — data-driven from canonical XPS_CALIBRATION_STANDARDS
+  // (single source of truth). Accepts either the standard id or its label.
   const energyCalRef = effectiveValues['energyCalibrationReference'];
-  if (energyCalRef === 'C 1s 284.8 eV') {
-    params.energyShift = 0; // Default C 1s reference
+  if (typeof energyCalRef === 'string' && getCalibrationStandardById(energyCalRef)) {
+    params.energyShift = getCalibrationShift(energyCalRef);
     hasAnyParams = true;
-  } else if (energyCalRef === 'Au 4f7/2') {
-    params.energyShift = -200.2; // Au 4f7/2 at 84.0 eV vs C 1s at 284.8 eV
+  }
+
+  // Region focus (Survey | Cu 2p | Fe 2p | ...). Propagates UI → adapter →
+  // processing params → runner. 'Survey' is the default authoritative behavior.
+  const regionSelection = effectiveValues['regionSelection'];
+  if (typeof regionSelection === 'string' && regionSelection.length > 0) {
+    params.region = regionSelection;
     hasAnyParams = true;
   }
 
