@@ -4,6 +4,8 @@ import {
   parseUploadedSignalText,
   mapUploadedSignalColumns,
   AXIS_DEFAULTS_BY_TECHNIQUE,
+  checkTechniqueCompatibility,
+  inferTechnique,
   type UploadedSignalRun,
   type Technique
 } from '../data/uploadedSignalRuns';
@@ -52,6 +54,11 @@ async function fallbackLocalUpload(file: File, technique: string): Promise<Uploa
     parsed.columnMapping.xColumn,
     parsed.columnMapping.yColumn
   );
+
+  const compat = checkTechniqueCompatibility(mappedPoints, cleanTechnique, parsed.suggestedTechnique);
+  if (!compat.compatible) {
+    throw new Error(compat.message);
+  }
 
   const run = createUploadedSignalRun({
     fileName: parsed.fileName,
@@ -119,6 +126,12 @@ export async function uploadRawData(file: File, technique: string): Promise<Uplo
     }
 
     const axisDefaults = AXIS_DEFAULTS_BY_TECHNIQUE[cleanTechnique] || AXIS_DEFAULTS_BY_TECHNIQUE.Unknown;
+
+    const suggested = inferTechnique(file.name, points);
+    const compat = checkTechniqueCompatibility(points, cleanTechnique, suggested);
+    if (!compat.compatible) {
+      throw new Error(compat.message);
+    }
 
     const run = createUploadedSignalRun({
       fileName: data.fileName || file.name,

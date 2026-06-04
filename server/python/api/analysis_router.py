@@ -65,18 +65,23 @@ def _validate_file_extension(filename: str) -> None:
 
 
 def _validate_technique(technique: str) -> str:
-    """Validate and normalize the technique string. Returns uppercase technique."""
-    valid = {"XRD", "XPS", "FTIR", "Raman"}
-    normalized = technique.strip()
-    if normalized not in valid:
+    """Validate and normalize the technique string. Returns registered technique casing."""
+    valid_map = {
+        "xrd": "XRD",
+        "xps": "XPS",
+        "ftir": "FTIR",
+        "raman": "Raman"
+    }
+    normalized = technique.strip().lower()
+    if normalized not in valid_map:
         raise HTTPException(
             status_code=400,
             detail=(
                 f"Unsupported technique '{technique}'. "
-                f"Allowed: {', '.join(sorted(valid))}"
+                f"Allowed: {', '.join(sorted(valid_map.values()))}"
             ),
         )
-    return normalized
+    return valid_map[normalized]
 
 
 # ============================================================================
@@ -129,6 +134,140 @@ def _parse_csv_two_columns(raw_bytes: bytes) -> tuple:
         )
 
     return x[:min_len], y[:min_len]
+
+
+def _find_peaks_in_signal(x: List[float], y: List[float], technique: str) -> List[dict]:
+    """
+    Find peaks in a 1D signal with technique-specific settings.
+    Automatically handles descending/unsorted x axes and FTIR transmittance dips.
+    """
+    x_arr = np.array(x)
+    y_arr = np.array(y)
+
+    # Normalize axis ordering (ascending) for peak finding
+    sort_idx = np.argsort(x_arr)
+    x_sorted = x_arr[sort_idx]
+    y_sorted = y_arr[sort_idx]
+
+    # FTIR transmittance check and auto-inversion
+    if technique == "FTIR":
+        y_min, y_max = np.min(y_sorted), np.max(y_sorted)
+        y_range = y_max - y_min
+        # If median is in the upper half of the range, it's transmittance (dips)
+        if y_range > 0 and np.median(y_sorted) > (y_min + y_range * 0.5):
+            signal = y_max - y_sorted
+        else:
+            signal = y_sorted
+    else:
+        signal = y_sorted
+
+    min_sig = float(np.min(signal))
+    max_sig = float(np.max(signal))
+    variation = max_sig - min_sig
+    if variation <= 0:
+        return []
+
+    x_min, x_max = float(np.min(x_sorted)), float(np.max(x_sorted))
+    x_range = x_max - x_min
+
+    # Technique-specific detection parameters
+    if technique == "XRD":
+        prominence_threshold = 0.02 * variation
+        height_threshold = min_sig + 0.05 * variation
+        min_spacing = x_range / 150.0 if x_range > 0 else 0.0
+    elif technique == "XPS":
+        prominence_threshold = 0.04 * variation
+        height_threshold = min_sig + 0.08 * variation
+        min_spacing = x_range / 100.0 if x_range > 0 else 0.0
+    elif technique == "FTIR":
+        prominence_threshold = 0.025 * variation
+        height_threshold = min_sig + 0.06 * variation
+        min_spacing = x_range / 120.0 if x_range > 0 else 0.0
+    elif technique == "Raman":
+        prominence_threshold = 0.03 * variation
+        height_threshold = min_sig + 0.08 * variation
+        min_spacing = x_range / 120.0 if x_range > 0 else 0.0
+    else:
+        prominence_threshold = 0.03 * variation
+        height_threshold = min_sig + 0.05 * variation
+        min_spacing = x_range / 120.0 if x_range > 0 else 0.0
+
+    from scipy.signal import find_peaks
+    avg_spacing = x_range / len(x_sorted) if len(x_sorted) > 1 else 1.0
+    min_dist_indices = max(1, int(min_spacing / avg_spacing)) if avg_spacing > 0 else 1
+
+    peaks_indices, properties = find_peaks(
+        signal,
+        prominence=prominence_threshold,
+        height=height_threshold,
+        distance=min_dist_indices
+    )
+
+    peak_list = []
+    for idx_in_peaks, idx in enumerate(peaks_indices):
+        px = float(x_sorted[idx])
+        py = float(y_sorted[idx])
+        prominence = float(properties["prominences"][idx_in_peaks])
+        rel_intensity = float(((signal[idx] - min_sig) / variation) * 100) if variation > 0 else 0.0
+
+        peak_list.append({
+            "position": px,
+            "intensity": py,
+            "prominence": prominence,
+            "relative_intensity": rel_intensity
+        })
+
+    # Sort descending by prominence
+    peak_list.sort(key=lambda p: -p["prominence"])
+    return peak_list
+
+
+
+def _get_xps_peak_label(position: float) -> tuple[str, ConfidenceLevel]:
+    """descriptive region labeling for XPS peak positions, preserving scientific uncertainty."""
+    if 280.0 <= position <= 292.0:
+        return "XPS peak in C 1s region", ConfidenceLevel.MEDIUM
+    elif 525.0 <= position <= 540.0:
+        return "XPS peak in O 1s region", ConfidenceLevel.MEDIUM
+    elif 705.0 <= position <= 735.0:
+        return "XPS peak in Fe 2p region", ConfidenceLevel.MEDIUM
+    elif 925.0 <= position <= 965.0:
+        return "XPS peak in Cu 2p region", ConfidenceLevel.MEDIUM
+    elif 99.0 <= position <= 105.0:
+        return "XPS peak in Si 2p region", ConfidenceLevel.MEDIUM
+    elif 160.0 <= position <= 170.0:
+        return "XPS peak in S 2p region", ConfidenceLevel.MEDIUM
+    else:
+        return f"XPS peak at {position:.1f} eV", ConfidenceLevel.LOW
+
+
+def _get_ftir_band_label(position: float) -> tuple[str, ConfidenceLevel]:
+    """descriptive region labeling for FTIR band positions, preserving scientific uncertainty."""
+    if 3200.0 <= position <= 3700.0:
+        return "FTIR band in O-H / N-H stretching region", ConfidenceLevel.HIGH
+    elif 2800.0 <= position <= 3100.0:
+        return "FTIR band in C-H stretching region", ConfidenceLevel.MEDIUM
+    elif 1650.0 <= position <= 1800.0:
+        return "FTIR band in carbonyl / carboxyl stretching region", ConfidenceLevel.HIGH
+    elif 1500.0 <= position <= 1650.0:
+        return "FTIR band in OH bending / carbonate region", ConfidenceLevel.MEDIUM
+    elif 900.0 <= position <= 1250.0:
+        return "FTIR band in support / silicate / C-O stretching region", ConfidenceLevel.HIGH
+    elif 400.0 <= position <= 700.0:
+        return "FTIR band in metal-oxygen stretch / lattice vibration region", ConfidenceLevel.MEDIUM
+    else:
+        return f"FTIR band at {position:.1f} cm⁻¹", ConfidenceLevel.LOW
+
+
+def _get_raman_mode_label(position: float) -> tuple[str, ConfidenceLevel]:
+    """descriptive region labeling for Raman mode positions, preserving scientific uncertainty."""
+    if 100.0 <= position <= 800.0:
+        return "Raman mode in lattice / local-structure region", ConfidenceLevel.MEDIUM
+    elif 1300.0 <= position <= 1650.0:
+        return "Raman mode in carbon D/G band region", ConfidenceLevel.HIGH
+    else:
+        return f"Raman mode at {position:.1f} cm⁻¹", ConfidenceLevel.LOW
+
 
 
 # ============================================================================
@@ -230,146 +369,171 @@ def _handle_xrd_upload(file_bytes: bytes, filename: str) -> dict:
         "detected_peaks": detected_peaks,
         "fitted_peaks": fitted_peaks,
         "phase_match": phase_match_summary,
-        "sn_ratio": round(result.sn_ratio, 4),
-        "baseline_deviation": round(result.baseline_deviation, 6),
-        "peak_resolution": round(result.peak_resolution, 4),
+        "sn_ratio": round(result.sn_ratio, 4) if isinstance(result.sn_ratio, (int, float)) else result.sn_ratio,
+        "baseline_deviation": round(result.baseline_deviation, 6) if isinstance(result.baseline_deviation, (int, float)) else result.baseline_deviation,
+        "peak_resolution": round(result.peak_resolution, 4) if isinstance(result.peak_resolution, (int, float)) else result.peak_resolution,
         "assessment": assessment_dict,
         "claim_boundary": claim_boundary_dict,
         "parsed_features": parsed_features,
+        "x": x_data,
+        "y": y_data,
     }
 
 
-# --- XPS Stub Handler ---
 
 def _handle_xps_upload_stub(file_bytes: bytes, filename: str) -> dict:
     """
-    XPS Stub: Parse CSV (binding_energy, intensity) and return mock features.
-
-    Mock features represent typical XPS core-level photoemission peaks
-    found in common surface analysis scenarios.
+    XPS Handler: Parse CSV (binding_energy, intensity), run peak detection,
+    and apply energy calibration shift if eligible reference peaks are found.
     """
     x_data, y_data = _parse_csv_two_columns(file_bytes)
     point_count = len(x_data)
+    y_min, y_max = min(y_data), max(y_data)
+    y_range = y_max - y_min
 
-    # Mock XPS features based on common binding energies
-    mock_xps_features = [
-        {
-            "binding_energy_eV": 284.8,
-            "assignment": "C 1s (adventitious carbon)",
-            "confidence": "high",
-        },
-        {
-            "binding_energy_eV": 532.0,
-            "assignment": "O 1s (metal oxide / hydroxide)",
-            "confidence": "medium",
-        },
-        {
-            "binding_energy_eV": 399.5,
-            "assignment": "N 1s (amine / pyridinic nitrogen)",
-            "confidence": "low",
-        },
-    ]
+    # Detect raw peaks first
+    raw_peaks = _find_peaks_in_signal(x_data, y_data, "XPS")
 
+    # Find calibration candidate reference peaks
+    # Prominence must exceed 5% of y_range to be considered eligible
+    min_ref_prominence = 0.05 * y_range if y_range > 0 else 0.0
+
+    c1s_candidates = []
+    o1s_candidates = []
+    if y_range >= 15.0:
+        c1s_candidates = [p for p in raw_peaks if 282.0 <= p["position"] <= 288.0 and p["prominence"] >= min_ref_prominence]
+        o1s_candidates = [p for p in raw_peaks if 526.0 <= p["position"] <= 534.0 and p["prominence"] >= min_ref_prominence]
+
+
+    energy_shift = 0.0
+    ref_peak = None
+    ref_type = "None"
+    status = "skipped_no_reference"
+    confidence = ConfidenceLevel.LOW
+    message = "No eligible C 1s or O 1s reference peak detected with sufficient prominence. No shift applied."
+
+    if c1s_candidates:
+        ref_peak = c1s_candidates[0]
+        ref_type = "C 1s"
+        raw_pos = ref_peak["position"]
+        energy_shift = 284.8 - raw_pos
+        if abs(energy_shift) <= 0.1:
+            energy_shift = 0.0
+            status = "already_calibrated"
+            confidence = ConfidenceLevel.HIGH
+            message = f"C 1s reference peak detected at {raw_pos:.2f} eV (close to 284.8 eV). Spectrum is already calibrated."
+        else:
+            status = "calibrated"
+            confidence = ConfidenceLevel.HIGH
+            message = f"Shifted XPS energy scale by {energy_shift:+.2f} eV to align C 1s reference peak ({raw_pos:.2f} eV -> 284.8 eV)."
+    elif o1s_candidates:
+        ref_peak = o1s_candidates[0]
+        ref_type = "O 1s"
+        raw_pos = ref_peak["position"]
+        energy_shift = 529.8 - raw_pos
+        if abs(energy_shift) <= 0.1:
+            energy_shift = 0.0
+            status = "already_calibrated"
+            confidence = ConfidenceLevel.MEDIUM
+            message = f"O 1s reference peak detected at {raw_pos:.2f} eV (close to 529.8 eV). Spectrum is already calibrated."
+        else:
+            status = "calibrated"
+            confidence = ConfidenceLevel.MEDIUM
+            message = f"Shifted XPS energy scale by {energy_shift:+.2f} eV to align O 1s reference peak ({raw_pos:.2f} eV -> 529.8 eV)."
+
+    # Apply energy shift to x coordinates
+    x_calibrated = [float(val + energy_shift) for val in x_data]
+
+    # Re-run peak finding on the calibrated scale
+    calibrated_peaks = _find_peaks_in_signal(x_calibrated, y_data, "XPS")
+
+    # Generate UniversalEvidenceNodes for calibrated peaks
     parsed_features = []
-    for i, feat in enumerate(mock_xps_features):
-        conf_map = {"high": ConfidenceLevel.HIGH, "medium": ConfidenceLevel.MEDIUM, "low": ConfidenceLevel.LOW}
+    for i, peak in enumerate(calibrated_peaks):
+        label, conf = _get_xps_peak_label(peak["position"])
+        full_label = f"{label} ({peak['relative_intensity']:.1f}% rel)"
         node = UniversalEvidenceNode(
             id=f"xps-peak-{i+1:03d}",
             technique=Technique.XPS,
-            primaryAxis=feat["binding_energy_eV"],
+            primaryAxis=peak["position"],
             primaryAxisUnit="eV",
-            value=0.0,  # Mock: no real intensity computed
+            value=peak["intensity"],
             valueUnit="counts/s",
-            label=feat["assignment"],
+            label=full_label,
             role="primary",
-            confidence=conf_map.get(feat["confidence"], ConfidenceLevel.UNCERTAIN),
+            confidence=conf,
         )
         parsed_features.append(node.model_dump())
 
+    # Build calibration metadata object
+    calibration_metadata = {
+        "energy_shift": energy_shift,
+        "reference_type": ref_type,
+        "reference_peak": {
+            "position": ref_peak["position"],
+            "intensity": ref_peak["intensity"],
+            "prominence": ref_peak["prominence"],
+        } if ref_peak else None,
+        "confidence": confidence.value if hasattr(confidence, "value") else str(confidence),
+        "status": status,
+        "message": message,
+    }
+
     return {
         "point_count": point_count,
-        "axis_range": [min(x_data), max(x_data)],
+        "x": x_calibrated,
+        "y": y_data,
+        "axis_range": [min(x_calibrated), max(x_calibrated)],
         "axis_unit": "eV",
         "value_unit": "counts/s",
-        "mock_peaks": mock_xps_features,
+        "calibration_metadata": calibration_metadata,
         "parsed_features": parsed_features,
-        "stub": True,
-        "message": (
-            "XPS analysis stub — mock surface-state features returned. "
-            "Full XPS signal processing is not yet implemented."
-        ),
+        "stub": False,
+        "message": message,
     }
+
 
 
 # --- FTIR Stub Handler ---
 
 def _handle_ftir_upload_stub(file_bytes: bytes, filename: str) -> dict:
     """
-    FTIR Stub: Parse CSV (wavenumber, transmittance) and return mock features.
-
-    Mock features represent typical FTIR vibrational bands for common
-    functional groups and bonding environments.
+    FTIR Handler: Parse CSV (wavenumber, transmittance/absorbance),
+    detect band regions (handling transmittance dips automatically),
+    and return real coordinate arrays and evidence-bound features.
     """
     x_data, y_data = _parse_csv_two_columns(file_bytes)
     point_count = len(x_data)
 
-    # Mock FTIR features based on common IR absorption bands
-    mock_ftir_features = [
-        {
-            "wavenumber_cm1": 3400.0,
-            "assignment": "O-H stretch (hydroxyl / water)",
-            "confidence": "high",
-        },
-        {
-            "wavenumber_cm1": 1630.0,
-            "assignment": "O-H bend (adsorbed water)",
-            "confidence": "medium",
-        },
-        {
-            "wavenumber_cm1": 1050.0,
-            "assignment": "Si-O-Si asymmetric stretch (siloxane)",
-            "confidence": "high",
-        },
-        {
-            "wavenumber_cm1": 800.0,
-            "assignment": "Si-O-Si symmetric stretch / Si-O bending",
-            "confidence": "medium",
-        },
-        {
-            "wavenumber_cm1": 2920.0,
-            "assignment": "C-H asymmetric stretch (alkyl chain)",
-            "confidence": "low",
-        },
-    ]
+    detected_bands = _find_peaks_in_signal(x_data, y_data, "FTIR")
 
     parsed_features = []
-    for i, feat in enumerate(mock_ftir_features):
-        conf_map = {"high": ConfidenceLevel.HIGH, "medium": ConfidenceLevel.MEDIUM, "low": ConfidenceLevel.LOW}
+    for i, band in enumerate(detected_bands):
+        label, conf = _get_ftir_band_label(band["position"])
+        full_label = f"{label} ({band['relative_intensity']:.1f}% rel)"
         node = UniversalEvidenceNode(
             id=f"ftir-band-{i+1:03d}",
             technique=Technique.FTIR,
-            primaryAxis=feat["wavenumber_cm1"],
+            primaryAxis=band["position"],
             primaryAxisUnit="cm⁻¹",
-            value=0.0,  # Mock: no real transmittance computed
+            value=band["intensity"],
             valueUnit="%",
-            label=feat["assignment"],
+            label=full_label,
             role="primary",
-            confidence=conf_map.get(feat["confidence"], ConfidenceLevel.UNCERTAIN),
+            confidence=conf,
         )
         parsed_features.append(node.model_dump())
 
     return {
         "point_count": point_count,
+        "x": x_data,
+        "y": y_data,
         "axis_range": [min(x_data), max(x_data)],
         "axis_unit": "cm⁻¹",
         "value_unit": "%",
-        "mock_bands": mock_ftir_features,
         "parsed_features": parsed_features,
-        "stub": True,
-        "message": (
-            "FTIR analysis stub — mock vibrational band features returned. "
-            "Full FTIR signal processing is not yet implemented."
-        ),
+        "stub": False,
+        "message": f"FTIR analysis completed. Extracted {len(detected_bands)} band regions from raw data.",
     }
 
 
@@ -377,72 +541,43 @@ def _handle_ftir_upload_stub(file_bytes: bytes, filename: str) -> dict:
 
 def _handle_raman_upload_stub(file_bytes: bytes, filename: str) -> dict:
     """
-    Raman Stub: Parse CSV (raman_shift, intensity) and return mock features.
-
-    Mock features represent typical Raman vibrational modes for common
-    materials (e.g., silicon, carbon allotropes, metal oxides).
+    Raman Handler: Parse CSV (raman_shift, intensity), detect modes,
+    and return real coordinate arrays and evidence-bound features.
     """
     x_data, y_data = _parse_csv_two_columns(file_bytes)
     point_count = len(x_data)
 
-    # Mock Raman features based on common vibrational modes
-    mock_raman_features = [
-        {
-            "raman_shift_cm1": 520.0,
-            "assignment": "Si TO mode (crystalline silicon)",
-            "confidence": "high",
-        },
-        {
-            "raman_shift_cm1": 1350.0,
-            "assignment": "D-band (disordered sp² carbon)",
-            "confidence": "high",
-        },
-        {
-            "raman_shift_cm1": 1580.0,
-            "assignment": "G-band (graphitic sp² carbon)",
-            "confidence": "high",
-        },
-        {
-            "raman_shift_cm1": 2700.0,
-            "assignment": "2D-band (graphene / few-layer graphite)",
-            "confidence": "medium",
-        },
-        {
-            "raman_shift_cm1": 440.0,
-            "assignment": "E₂g mode (rutile TiO₂)",
-            "confidence": "low",
-        },
-    ]
+    detected_modes = _find_peaks_in_signal(x_data, y_data, "Raman")
 
     parsed_features = []
-    for i, feat in enumerate(mock_raman_features):
-        conf_map = {"high": ConfidenceLevel.HIGH, "medium": ConfidenceLevel.MEDIUM, "low": ConfidenceLevel.LOW}
+    for i, mode in enumerate(detected_modes):
+        label, conf = _get_raman_mode_label(mode["position"])
+        full_label = f"{label} ({mode['relative_intensity']:.1f}% rel)"
         node = UniversalEvidenceNode(
             id=f"raman-mode-{i+1:03d}",
             technique=Technique.RAMAN,
-            primaryAxis=feat["raman_shift_cm1"],
+            primaryAxis=mode["position"],
             primaryAxisUnit="cm⁻¹",
-            value=0.0,  # Mock: no real intensity computed
+            value=mode["intensity"],
             valueUnit="a.u.",
-            label=feat["assignment"],
+            label=full_label,
             role="primary",
-            confidence=conf_map.get(feat["confidence"], ConfidenceLevel.UNCERTAIN),
+            confidence=conf,
         )
         parsed_features.append(node.model_dump())
 
     return {
         "point_count": point_count,
+        "x": x_data,
+        "y": y_data,
         "axis_range": [min(x_data), max(x_data)],
         "axis_unit": "cm⁻¹",
         "value_unit": "a.u.",
-        "mock_modes": mock_raman_features,
         "parsed_features": parsed_features,
-        "stub": True,
-        "message": (
-            "Raman analysis stub — mock vibrational mode features returned. "
-            "Full Raman signal processing is not yet implemented."
-        ),
+        "stub": False,
+        "message": f"Raman analysis completed. Extracted {len(detected_modes)} mode regions from raw data.",
     }
+
 
 
 # ============================================================================
@@ -539,7 +674,7 @@ async def upload_analysis(
         "fileName": filename,
         "fileSize": file_size,
         "contentType": file.content_type or "application/octet-stream",
-        "pointCount": result.get("point_count"),
+        "pointCount": result.get("point_count") or (len(result.get("x")) if result.get("x") else 0),
     }
 
     response = UploadAnalysisResponse(
@@ -549,14 +684,16 @@ async def upload_analysis(
         metadata=metadata,
         parsed_features=result.get("parsed_features", []),
         message=result.get("message", f"{technique} analysis completed successfully."),
+        x=result.get("x"),
+        y=result.get("y"),
+        calibration_metadata=result.get("calibration_metadata"),
     )
 
     # Attach additional analysis details as extra fields
     response_dict = response.model_dump()
-    # Include technique-specific analysis data for frontend consumption
     response_dict["analysis"] = {
         k: v for k, v in result.items()
-        if k not in ("parsed_features", "message")
+        if k not in ("parsed_features", "message", "x", "y", "calibration_metadata")
     }
 
-    return response_dict
+    return response_dict

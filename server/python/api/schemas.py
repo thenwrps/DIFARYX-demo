@@ -935,6 +935,22 @@ class UploadAnalysisResponse(BaseModel):
         default="",
         description="Human-readable status message.",
     )
+    x: Optional[List[float]] = Field(
+        default=None,
+        description="X coordinates array for graphical rendering.",
+    )
+    y: Optional[List[float]] = Field(
+        default=None,
+        description="Y coordinates array for graphical rendering.",
+    )
+    calibration_metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="XPS calibration metadata.",
+    )
+    analysis: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Technique-specific analysis details.",
+    )
 
 
 # ============================================================================
