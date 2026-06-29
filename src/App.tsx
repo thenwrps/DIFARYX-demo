@@ -1,5 +1,6 @@
 import { lazy, Suspense, type ReactElement } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 const SignIn = lazy(() => import("./pages/SignIn"));
 const AuthCallback = lazy(() => import("./pages/AuthCallback"));
@@ -317,6 +318,7 @@ function App() {
           </Suspense>
         </XrdWorkflowRuntimeProvider>
       </Router>
+      <SpeedInsights />
     </AuthProvider>
   );
 }
